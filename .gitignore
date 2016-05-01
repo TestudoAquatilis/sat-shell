@@ -1,0 +1,12 @@
+.*.swp
+*.d
+*.o
+*.vim
+*.cnf
+*.cnf.gz
+*.sol
+parser
+lexer
+sat-shell
+sat-formula-test
+todos.markdown
