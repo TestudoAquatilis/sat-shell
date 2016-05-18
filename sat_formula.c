@@ -20,32 +20,64 @@
 #include "sat_formula_parser.h"
 #include "sat_formula_lexer.h"
 
-#include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
 
+/* sat formula syntax tree element */
 struct sat_formula {
+    /* tag defining operation/data */
     enum sat_formula_tag_t tag;
+    /* for literal elements: literal as long int */
     long int literal;
+    /* operand for inversion, left operand for two-operand operations */
     struct sat_formula *left_operand;
+    /* right operand for two-operand operations */
     struct sat_formula *right_operand;
 };
 
-static struct sat_formula * sat_formula_clause_find_non_cnf (GList *formula_clause);
-static GList * sat_formula_clause_to_sorted_clause (GList *formula_clause);
-static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GList *formula_clause, GQueue *formula_clause_queue);
+/* find and return the first sat_formula element in a clause represented
+ * as a GSlist of sat_formula elements that is not a literal */
+static struct sat_formula * sat_formula_clause_find_non_cnf (GSList *formula_clause);
+
+/* transform a clause represented by a GSList of sat_formula tree elements
+ * that contains only literals into a sorted clause represented by a GQueue
+ * of literals represented by long int */
+static GQueue* sat_formula_clause_to_sorted_clause (GSList *formula_clause);
+
+/* process a sat_formula tree element in order to transform it into CNF.
+ * non_cnf_formula is the tree element that is not a literal and is contained in
+ * formula clause (GSList of formula tree elements). 
+ * formula clause is the clause to transform. newly generated clauses in transformation
+ * will be added to formula_clause_queue. */
+static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GSList *formula_clause, GQueue *formula_clause_queue);
+
+/* reduce a formula tree beginning with an inversion */
 static void sat_formula_clause_transform_inversion (struct sat_formula *non_cnf_formula);
 
-static gint sat_formula_literal_compare_func (gconstpointer a, gconstpointer b);
+/* compare two literals (long int casted to gpointer):
+ * first by absolute value, secondly by sign */
+static gint sat_formula_literal_compare_func (gconstpointer a, gconstpointer b, gpointer userdata);
+/* compare two clauses as GQueue by number of elements */
 static gint sat_formula_clause_compare_func (gconstpointer a, gconstpointer b);
 
-static bool sat_formula_cnf_sorted_clause_is_true (GList *sorted_clause);
-static bool sat_formula_cnf_sorted_clause_is_subsummed (GList *sorted_clause_subsummed, GList *sorted_clause_subsumming);
-static GList * sat_formula_cnf_insert_reduce (GList *sorted_clause_list, GList *sorted_clause);
+/* check if a clause represented as sorted GQueue of literals is always true */
+static bool sat_formula_cnf_sorted_clause_is_true (GQueue *sorted_clause);
 
+/* check if a clause sorted_clause_subsumming subsums a clause sorted_clause_subsummed.
+ * both clauses are represented as sorted GQueues of literals (long int). */
+static bool sat_formula_cnf_sorted_clause_is_subsummed (GQueue *sorted_clause_subsummed, GQueue *sorted_clause_subsumming);
+
+/* insert a sorted clause sorted_clause represented as a sorted GQueue
+ * of literals (long int)
+ * into a sorted list of clauses sorted_clause_list represented by a sorted GList of
+ * sorted GQueues, remove subsummed clauses, ignore tautologies.
+ * return the updated clause list. */
+static GList * sat_formula_cnf_insert_reduce (GList *sorted_clause_list, GQueue *sorted_clause);
+
+/* allocate and return a new sat_formula element representing the given literal */
 struct sat_formula * sat_formula_new_literal (long int literal)
 {
-    struct sat_formula *result = (struct sat_formula *) malloc (sizeof (struct sat_formula));
+    struct sat_formula *result = g_slice_new (struct sat_formula);
     if (result == NULL) return NULL;
 
     /* DEBUG
@@ -60,9 +92,10 @@ struct sat_formula * sat_formula_new_literal (long int literal)
     return result;
 }
 
+/* allocate and return a new sat_formula element representing the given operation with given operands */
 struct sat_formula * sat_formula_new_operation (enum sat_formula_tag_t tag, struct sat_formula *left, struct sat_formula *right)
 {
-    struct sat_formula *result = (struct sat_formula *) malloc (sizeof (struct sat_formula));
+    struct sat_formula *result = g_slice_new (struct sat_formula);
     if (result == NULL) return NULL;
 
     result->tag     = tag;
@@ -78,6 +111,7 @@ struct sat_formula * sat_formula_new_operation (enum sat_formula_tag_t tag, stru
     return result;
 }
 
+/* recursively free the given sat_formula tree */
 void sat_formula_free (struct sat_formula **fpointer)
 {
     if (fpointer == NULL) return;
@@ -92,10 +126,11 @@ void sat_formula_free (struct sat_formula **fpointer)
 
     sat_formula_free (&formula->left_operand);
     sat_formula_free (&formula->right_operand);
-    free (formula);
+    g_slice_free (struct sat_formula, formula);
     *fpointer = NULL;
 }
 
+/* recursively print the given sat_formula tree without final newline */
 static void sat_formula_print_nonewline (struct sat_formula *formula)
 {
     if (formula == NULL) {
@@ -159,17 +194,19 @@ static void sat_formula_print_nonewline (struct sat_formula *formula)
     }
 }
 
+/* recursively print the given sat_formula */
 void sat_formula_print (struct sat_formula *formula)
 {
     sat_formula_print_nonewline (formula);
     printf ("\n");
 }
 
+/* recursively duplicate the given sat_formula tree */
 struct sat_formula * sat_formula_duplicate (struct sat_formula *formula)
 {
     if (formula == NULL) return NULL;
 
-    struct sat_formula *result = (struct sat_formula *) malloc (sizeof (struct sat_formula));
+    struct sat_formula *result = g_slice_new (struct sat_formula);
     if (result == NULL) return NULL;
 
     result->tag           = formula->tag;
@@ -180,61 +217,64 @@ struct sat_formula * sat_formula_duplicate (struct sat_formula *formula)
     return result;
 }
 
+/* parse and return the given formula into an allocated sat_formula tree */
 struct sat_formula *sat_formula_parse (const char *expr)
 {
     struct sat_formula *formula = NULL;
     yyscan_t scanner;
     YY_BUFFER_STATE state;
 
-    if (yylex_init (&scanner)) {
-        // couldn't initialize
+    if (sat_formula_yylex_init (&scanner)) {
+        /* couldn't initialize */
         return NULL;
     }
 
-    state = yy_scan_string (expr, scanner);
+    state = sat_formula_yy_scan_string (expr, scanner);
 
-    if (yyparse (&formula, scanner)) {
-        // error parsing
+    if (sat_formula_yyparse (&formula, scanner)) {
+        /* error parsing */
         sat_formula_free (&formula);
 
-        yy_delete_buffer (state, scanner);
+        sat_formula_yy_delete_buffer (state, scanner);
 
-        yylex_destroy (scanner);
+        sat_formula_yylex_destroy (scanner);
 
         return NULL;
     }
 
-    yy_delete_buffer (state, scanner);
+    sat_formula_yy_delete_buffer (state, scanner);
 
-    yylex_destroy (scanner);
+    sat_formula_yylex_destroy (scanner);
 
     return formula;
 }
 
+/* transforms and returns a given sat_formula tree into a CNF formula represented
+ * as a GList of clauses, where each clause is a GQueue of literals as long int */
 GList * sat_formula_to_cnf (struct sat_formula *formula)
 {
     if (formula == NULL) return NULL;
     formula = sat_formula_duplicate (formula);
 
     GQueue *formula_clause_queue = g_queue_new ();
-    GList  *formula_clause       = NULL;
+    GSList *formula_clause       = NULL;
     GList  *result_list          = NULL;
-    formula_clause               = g_list_prepend (formula_clause, formula);
+    formula_clause = g_slist_prepend (formula_clause, formula);
 
     g_queue_push_head (formula_clause_queue, formula_clause);
 
     while (! g_queue_is_empty (formula_clause_queue)) {
-        GList *formula_clause = g_queue_pop_head (formula_clause_queue);
+        GSList *formula_clause = g_queue_pop_head (formula_clause_queue);
         if (formula_clause == NULL) continue;
 
         struct sat_formula *non_cnf = sat_formula_clause_find_non_cnf (formula_clause);
         if (non_cnf == NULL) {
-            GList *sorted_clause = sat_formula_clause_to_sorted_clause (formula_clause);
+            GQueue *sorted_clause = sat_formula_clause_to_sorted_clause (formula_clause);
 
-            for (GList *li = formula_clause; li != NULL; li = li->next) {
+            for (GSList *li = formula_clause; li != NULL; li = li->next) {
                 sat_formula_free ((struct sat_formula **) &li->data);
             }
-            g_list_free (formula_clause);
+            g_slist_free (formula_clause);
 
             result_list = sat_formula_cnf_insert_reduce (result_list, sorted_clause);
         } else {
@@ -247,11 +287,13 @@ GList * sat_formula_to_cnf (struct sat_formula *formula)
     return result_list;
 }
 
-static struct sat_formula * sat_formula_clause_find_non_cnf (GList *formula_clause)
+/* find and return the first sat_formula element in a clause represented
+ * as a GSlist of sat_formula elements that is not a literal */
+static struct sat_formula * sat_formula_clause_find_non_cnf (GSList *formula_clause)
 {
     if (formula_clause == NULL) return NULL;
 
-    for (GList *li = formula_clause; li != NULL; li = li->next) {
+    for (GSList *li = formula_clause; li != NULL; li = li->next) {
         struct sat_formula *f = li->data;
         if (f->tag != SAT_FORMULA_TAG_LITERAL) return f;
     }
@@ -259,10 +301,12 @@ static struct sat_formula * sat_formula_clause_find_non_cnf (GList *formula_clau
     return NULL;
 }
 
-static gint sat_formula_literal_compare_func (gconstpointer a, gconstpointer b)
+/* compare two literals (long int casted to gpointer):
+ * first by absolute value, secondly by sign */
+static gint sat_formula_literal_compare_func (gconstpointer a, gconstpointer b, gpointer userdata)
 {
-    long int ia = GPOINTER_TO_INT (a);
-    long int ib = GPOINTER_TO_INT (b);
+    long int ia = GPOINTER_TO_SIZE (a);
+    long int ib = GPOINTER_TO_SIZE (b);
 
     if (ia + ib == 0) return ib-ia;
     if (ia < 0) ia = -ia;
@@ -271,69 +315,106 @@ static gint sat_formula_literal_compare_func (gconstpointer a, gconstpointer b)
     return ia - ib;
 }
 
+/* compare two clauses as GQueue by number of elements */
 static gint sat_formula_clause_compare_func (gconstpointer a, gconstpointer b)
 {
-    GList *clause_a = (GList *) a;
-    GList *clause_b = (GList *) b;
+    GQueue *clause_a = (GQueue *) a;
+    GQueue *clause_b = (GQueue *) b;
 
-    guint len_a = g_list_length (clause_a);
-    guint len_b = g_list_length (clause_b);
+    guint len_a = g_queue_get_length (clause_a);
+    guint len_b = g_queue_get_length (clause_b);
 
     return len_a - len_b;
 }
 
-static GList * sat_formula_clause_to_sorted_clause (GList *formula_clause)
+/* transform a clause represented by a GSList of sat_formula tree elements
+ * that contains only literals into a sorted clause represented by a GQueue
+ * of literals represented by long int */
+static GQueue * sat_formula_clause_to_sorted_clause (GSList *formula_clause)
 {
-    GList *result = NULL;
+    GQueue *result = g_queue_new ();
 
-    for (GList *li = formula_clause; li != NULL; li = li->next) {
+    for (GSList *li = formula_clause; li != NULL; li = li->next) {
         struct sat_formula *f = li->data;
-        result = g_list_prepend (result, GINT_TO_POINTER (f->literal));
+        g_queue_push_tail (result, GSIZE_TO_POINTER (f->literal));
     }
-    result = g_list_sort (result, sat_formula_literal_compare_func);
+    g_queue_sort (result, sat_formula_literal_compare_func, NULL);
+
+    /* remove duplicates */
+    long int last_lit = 0;
+    GList *li = result->head;
+    while (li != NULL) {
+        long int lit = GPOINTER_TO_SIZE (li->data);
+
+        GList *li_next = li->next;
+        if (lit == last_lit) {
+            g_queue_delete_link (result, li);
+        } else {
+            last_lit = lit;
+        }
+        li = li_next;
+    }
 
     return result;
 }
 
-static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GList *formula_clause, GQueue *formula_clause_queue)
+/* process a sat_formula tree element in order to transform it into CNF.
+ * non_cnf_formula is the tree element that is not a literal and is contained in
+ * formula clause (GSList of formula tree elements). 
+ * formula clause is the clause to transform. newly generated clauses in transformation
+ * will be added to formula_clause_queue. */
+static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GSList *formula_clause, GQueue *formula_clause_queue)
 {
     if (non_cnf_formula == NULL) return;
     if (formula_clause == NULL) return;
     if (formula_clause_queue == NULL) return;
 
+    /* literal: nothing to do */
     if (non_cnf_formula->tag == SAT_FORMULA_TAG_LITERAL) return;
 
+    /* inversion: invert formula-tree element and add clause to queue */
     if (non_cnf_formula->tag == SAT_FORMULA_TAG_INVERSION) {
         sat_formula_clause_transform_inversion (non_cnf_formula);
         g_queue_push_head (formula_clause_queue, formula_clause);
         return;
     }
 
+    /* implication right: a -> b becomes -a, b
+     * tree element becomes inversion of left operand,
+     * right operand is added to clause as new element,
+     * clause is resubmitted to queue */
     if (non_cnf_formula->tag == SAT_FORMULA_TAG_OP_RIMPL) {
         struct sat_formula *noninv     = non_cnf_formula->right_operand;
         non_cnf_formula->right_operand = NULL;
         non_cnf_formula->tag           = SAT_FORMULA_TAG_INVERSION;
-        formula_clause = g_list_prepend (formula_clause, noninv);
+        formula_clause = g_slist_prepend (formula_clause, noninv);
 
         g_queue_push_head (formula_clause_queue, formula_clause);
         return;
     }
 
+    /* implication left: a <- b becomes a, -b
+     * tree element becomes inversion of right operand,
+     * left operand is added to clause as new element,
+     * clause is resubmitted to queue */
     if (non_cnf_formula->tag == SAT_FORMULA_TAG_OP_LIMPL) {
         struct sat_formula *noninv     = non_cnf_formula->left_operand;
         non_cnf_formula->left_operand  = non_cnf_formula->right_operand;
         non_cnf_formula->right_operand = NULL;
         non_cnf_formula->tag           = SAT_FORMULA_TAG_INVERSION;
-        formula_clause = g_list_prepend (formula_clause, noninv);
+        formula_clause = g_slist_prepend (formula_clause, noninv);
 
         g_queue_push_head (formula_clause_queue, formula_clause);
         return;
     }
 
+    /* or: a or b becomes a, b
+     * right operand is added as new element to clause, tree element
+     * becomes representation of its left operand, left operand is freed */
     if (non_cnf_formula->tag == SAT_FORMULA_TAG_OP_OR) {
         struct sat_formula *sub_a = non_cnf_formula->left_operand;
 
-        formula_clause = g_list_prepend (formula_clause, non_cnf_formula->right_operand);
+        formula_clause = g_slist_prepend (formula_clause, non_cnf_formula->right_operand);
 
         non_cnf_formula->left_operand  = sub_a->left_operand;
         non_cnf_formula->right_operand = sub_a->right_operand;
@@ -348,16 +429,20 @@ static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GLi
         return;
     }
 
+    /* and: a and b becomes one clause containing a, one containing b
+     * clause is copied: formula tree element is changed to its left operand in
+     * original clause while its right operand is added to newly created clause.
+     * Both clauses are added for further processing */
     if (non_cnf_formula->tag == SAT_FORMULA_TAG_OP_AND) {
-        GList *formula_clause2 = NULL;
+        GSList *formula_clause2 = NULL;
 
-        for (GList *li = formula_clause; li != NULL; li = li->next) {
+        for (GSList *li = formula_clause; li != NULL; li = li->next) {
             struct sat_formula *f = li->data;
             if (f == non_cnf_formula) {
                 li->data        = f->left_operand;
-                formula_clause2 = g_list_prepend (formula_clause2, f->right_operand);
+                formula_clause2 = g_slist_prepend (formula_clause2, f->right_operand);
             } else {
-                formula_clause2 = g_list_prepend (formula_clause2, sat_formula_duplicate (f));
+                formula_clause2 = g_slist_prepend (formula_clause2, sat_formula_duplicate (f));
             }
         }
 
@@ -370,10 +455,11 @@ static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GLi
         return;
     }
 
+    /* xor: a xor b becomes one clause containing a, b and one containing -a, -b */
     if (non_cnf_formula->tag == SAT_FORMULA_TAG_OP_XOR) {
-        GList *formula_clause2 = NULL;
+        GSList *formula_clause2 = NULL;
 
-        for (GList *li = formula_clause; li != NULL; li = li->next) {
+        for (GSList *li = formula_clause; li != NULL; li = li->next) {
             struct sat_formula *f = li->data;
             if (f == non_cnf_formula) {
                 li->data        = f->left_operand;
@@ -381,13 +467,13 @@ static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GLi
                 struct sat_formula * b2 = sat_formula_duplicate (f->right_operand);
                 b1 = sat_formula_new_operation (SAT_FORMULA_TAG_INVERSION, b1, NULL);
                 b2 = sat_formula_new_operation (SAT_FORMULA_TAG_INVERSION, b2, NULL);
-                formula_clause2 = g_list_prepend (formula_clause2, b1);
-                formula_clause2 = g_list_prepend (formula_clause2, b2);
+                formula_clause2 = g_slist_prepend (formula_clause2, b1);
+                formula_clause2 = g_slist_prepend (formula_clause2, b2);
             } else {
-                formula_clause2 = g_list_prepend (formula_clause2, sat_formula_duplicate (f));
+                formula_clause2 = g_slist_prepend (formula_clause2, sat_formula_duplicate (f));
             }
         }
-        formula_clause = g_list_prepend (formula_clause, non_cnf_formula->right_operand);
+        formula_clause = g_slist_prepend (formula_clause, non_cnf_formula->right_operand);
 
         non_cnf_formula->left_operand  = NULL;
         non_cnf_formula->right_operand = NULL;
@@ -398,27 +484,28 @@ static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GLi
         return;
     }
 
+    /* equality: a == b becomes two clauses, one containing -a, b and one containing a, -b */
     if (non_cnf_formula->tag == SAT_FORMULA_TAG_OP_EQUAL) {
-        GList *formula_clause2 = NULL;
+        GSList *formula_clause2 = NULL;
 
-        for (GList *li = formula_clause; li != NULL; li = li->next) {
+        for (GSList *li = formula_clause; li != NULL; li = li->next) {
             struct sat_formula *f = li->data;
             if (f == non_cnf_formula) {
                 li->data        = f->left_operand;
                 struct sat_formula * b1 = sat_formula_duplicate (f->left_operand);
                 struct sat_formula * b2 = sat_formula_duplicate (f->right_operand);
                 b1 = sat_formula_new_operation (SAT_FORMULA_TAG_INVERSION, b1, NULL);
-                formula_clause2 = g_list_prepend (formula_clause2, b1);
-                formula_clause2 = g_list_prepend (formula_clause2, b2);
+                formula_clause2 = g_slist_prepend (formula_clause2, b1);
+                formula_clause2 = g_slist_prepend (formula_clause2, b2);
             } else {
-                formula_clause2 = g_list_prepend (formula_clause2, sat_formula_duplicate (f));
+                formula_clause2 = g_slist_prepend (formula_clause2, sat_formula_duplicate (f));
             }
         }
 
         non_cnf_formula->left_operand  = non_cnf_formula->right_operand;
         non_cnf_formula->right_operand = NULL;
         non_cnf_formula->tag           = SAT_FORMULA_TAG_INVERSION;
-        formula_clause = g_list_prepend (formula_clause, non_cnf_formula);
+        formula_clause = g_slist_prepend (formula_clause, non_cnf_formula);
 
         g_queue_push_head (formula_clause_queue, formula_clause);
         g_queue_push_head (formula_clause_queue, formula_clause2);
@@ -426,11 +513,12 @@ static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GLi
     }
 }
 
+/* reduce a formula tree beginning with an inversion */
 static void sat_formula_clause_transform_inversion (struct sat_formula *non_cnf_formula)
 {
         struct sat_formula *sub_f = non_cnf_formula->left_operand;
 
-        /* -(a) ... -a */
+        /* literal: -(a) becomes -a */
         if (sub_f->tag == SAT_FORMULA_TAG_LITERAL) {
             non_cnf_formula->literal = -sub_f->literal;
             non_cnf_formula->tag     = SAT_FORMULA_TAG_LITERAL;
@@ -438,7 +526,7 @@ static void sat_formula_clause_transform_inversion (struct sat_formula *non_cnf_
             return;
         }
 
-        /* -(-(f)) ... f */
+        /* inversion: -(-(f)) becomes f */
         if (sub_f->tag == SAT_FORMULA_TAG_INVERSION) {
             struct sat_formula *ssub_f     = sub_f->left_operand;
             non_cnf_formula->literal       = ssub_f->literal;
@@ -451,8 +539,9 @@ static void sat_formula_clause_transform_inversion (struct sat_formula *non_cnf_
             return;
         }
 
-        /* -(f1 xor f2) ... f1 ==  f2 */
-        /* -(f1 ==  f2) ... f1 xor f2 */
+        /* xor, equal:
+         * -(f1 xor f2) becomes f1 ==  f2
+         * -(f1 ==  f2) becomes f1 xor f2 */
         if ((sub_f->tag == SAT_FORMULA_TAG_OP_XOR) || (sub_f->tag == SAT_FORMULA_TAG_OP_EQUAL)) {
             non_cnf_formula->literal       = sub_f->literal;
             if (sub_f->tag == SAT_FORMULA_TAG_OP_XOR) {
@@ -468,8 +557,9 @@ static void sat_formula_clause_transform_inversion (struct sat_formula *non_cnf_
             return;
         }
 
-        /* -(f1 and f2) ... (-f1) or  (-f2) */
-        /* -(f1 or  f2) ... (-f1) and (-f2) */
+        /* and, or:
+         * -(f1 and f2) becomes (-f1) or  (-f2)
+         * -(f1 or  f2) becomes (-f1) and (-f2) */
         if ((sub_f->tag == SAT_FORMULA_TAG_OP_AND) || (sub_f->tag == SAT_FORMULA_TAG_OP_OR)) {
             if (sub_f->tag == SAT_FORMULA_TAG_OP_AND) {
                 non_cnf_formula->tag       = SAT_FORMULA_TAG_OP_OR;
@@ -483,8 +573,9 @@ static void sat_formula_clause_transform_inversion (struct sat_formula *non_cnf_
             return;
         }
 
-        /* -(f1 => f2) ... -((-f1) or   f2)  ...   f1  and (-f2) */
-        /* -(f1 <= f2) ... -(  f1  or (-f2)) ... (-f1) and   f2  */
+        /* implications:
+         * -(f1 => f2) becomes -((-f1) or   f2)  becomes   f1  and (-f2)
+         * -(f1 <= f2) becomes -(  f1  or (-f2)) becomes (-f1) and   f2  */
         if ((sub_f->tag == SAT_FORMULA_TAG_OP_RIMPL) || (sub_f->tag == SAT_FORMULA_TAG_OP_LIMPL)) {
             non_cnf_formula->tag       = SAT_FORMULA_TAG_OP_AND;
             if (sub_f->tag == SAT_FORMULA_TAG_OP_RIMPL) {
@@ -500,25 +591,30 @@ static void sat_formula_clause_transform_inversion (struct sat_formula *non_cnf_
         }
 }
 
-static GList * sat_formula_cnf_insert_reduce (GList *sorted_clause_list, GList *sorted_clause)
+/* insert a sorted clause sorted_clause represented as a sorted GQueue
+ * of literals (long int)
+ * into a sorted list of clauses sorted_clause_list represented by a sorted GList of
+ * sorted GQueues, remove subsummed clauses, ignore tautologies.
+ * return the updated clause list. */
+static GList * sat_formula_cnf_insert_reduce (GList *sorted_clause_list, GQueue *sorted_clause)
 {
     if (sorted_clause == NULL) return sorted_clause_list;
 
     if (sat_formula_cnf_sorted_clause_is_true (sorted_clause)) {
-        g_list_free (sorted_clause);
+        g_queue_free (sorted_clause);
         return sorted_clause_list;
     }
 
     GList *li = sorted_clause_list;
-    guint len_insert = g_list_length (sorted_clause);
+    guint len_insert = g_queue_get_length (sorted_clause);
 
     /* clause to insert subsummed? */
     while (li != NULL) {
-        GList *current_clause = li->data;
-        if (g_list_length (current_clause) > len_insert) break;
+        GQueue *current_clause = li->data;
+        if (g_queue_get_length (current_clause) > len_insert) break;
 
         if (sat_formula_cnf_sorted_clause_is_subsummed (sorted_clause, current_clause)) {
-            g_list_free (sorted_clause);
+            g_queue_free (sorted_clause);
             return sorted_clause_list;
         }
 
@@ -527,11 +623,11 @@ static GList * sat_formula_cnf_insert_reduce (GList *sorted_clause_list, GList *
 
     /* existing clause is subsummed? */
     while (li != NULL) {
-        GList *current_clause = li->data;
+        GQueue *current_clause = li->data;
         GList *li_next = li->next;
 
         if (sat_formula_cnf_sorted_clause_is_subsummed (current_clause, sorted_clause)) {
-            g_list_free (current_clause);
+            g_queue_free (current_clause);
             sorted_clause_list = g_list_delete_link (sorted_clause_list, li);
         }
 
@@ -541,12 +637,13 @@ static GList * sat_formula_cnf_insert_reduce (GList *sorted_clause_list, GList *
     return g_list_insert_sorted (sorted_clause_list, sorted_clause, sat_formula_clause_compare_func);
 }
 
-static bool sat_formula_cnf_sorted_clause_is_true (GList *sorted_clause)
+/* check if a clause represented as sorted GQueue of literals is always true */
+static bool sat_formula_cnf_sorted_clause_is_true (GQueue *sorted_clause)
 {
-    for (GList *li = sorted_clause; li != NULL; li = li->next) {
+    for (GList *li = sorted_clause->head; li != NULL; li = li->next) {
         if (li->next != NULL) {
-            long int this_literal = GPOINTER_TO_INT (li->data);
-            long int next_literal = GPOINTER_TO_INT (li->next->data);
+            long int this_literal = GPOINTER_TO_SIZE (li->data);
+            long int next_literal = GPOINTER_TO_SIZE (li->next->data);
 
             if (this_literal + next_literal == 0) return true;
         }
@@ -555,16 +652,18 @@ static bool sat_formula_cnf_sorted_clause_is_true (GList *sorted_clause)
     return false;
 }
 
-static bool sat_formula_cnf_sorted_clause_is_subsummed (GList *sorted_clause_subsummed, GList *sorted_clause_subsumming)
+/* check if a clause sorted_clause_subsumming subsums a clause sorted_clause_subsummed.
+ * both clauses are represented as sorted GQueues of literals (long int). */
+static bool sat_formula_cnf_sorted_clause_is_subsummed (GQueue *sorted_clause_subsummed, GQueue *sorted_clause_subsumming)
 {
     if (sorted_clause_subsumming == NULL) return true;
     if (sorted_clause_subsummed == NULL) return false;
 
-    GList *li_ssed = sorted_clause_subsummed;
-    for (GList *li_ssing = sorted_clause_subsumming; li_ssing != NULL; li_ssing = li_ssing->next) {
-        long int lit_ssing = GPOINTER_TO_INT (li_ssing->data);
+    GList *li_ssed = sorted_clause_subsummed->head;
+    for (GList *li_ssing = sorted_clause_subsumming->head; li_ssing != NULL; li_ssing = li_ssing->next) {
+        long int lit_ssing = GPOINTER_TO_SIZE (li_ssing->data);
         while (li_ssed != NULL) {
-            long int lit_ssed = GPOINTER_TO_INT (li_ssed->data);
+            long int lit_ssed = GPOINTER_TO_SIZE (li_ssed->data);
             if (lit_ssing == lit_ssed) break;
 
             li_ssed = li_ssed->next;

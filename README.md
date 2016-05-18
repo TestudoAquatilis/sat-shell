@@ -12,7 +12,7 @@ You need
 - glib version 2
 - zlib
 - minisat (or a compatible sat-solver)
-- flex, bison, gcc, make or something compatible for building.
+- flex, bison, gcc, make, sed or something compatible for building.
 
 # Build
 

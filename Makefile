@@ -49,6 +49,8 @@ $(PARSERDIR)/%.c $(PARSERDIR)/%.h: %.y $(MAKEFILE) | $(PARSERDIR)
 
 $(LEXERDIR)/%.c $(LEXERDIR)/%.h: %.l $(MAKEFILE) | $(LEXERDIR)
 	$(LEXERG) $*.l
+	sed -i -e 's/YYSTYPE/SAT_FORMULA_YYSTYPE/g' sat_formula_lexer.h
+	sed -i -e 's/YYSTYPE/SAT_FORMULA_YYSTYPE/g' sat_formula_lexer.c
 	mv $*.c $*.h $(LEXERDIR)
 
 $(LEXERDIR):

@@ -21,9 +21,13 @@
 
 #include <glib.h>
 
+/* tag for sat formula syntax tree elements */
 enum sat_formula_tag_t {
+    /* literal: literal contains value */
     SAT_FORMULA_TAG_LITERAL,
+    /* inversion: left operand is inverted, right operand is NULL */
     SAT_FORMULA_TAG_INVERSION,
+    /* two-operand operations */
     SAT_FORMULA_TAG_OP_OR,
     SAT_FORMULA_TAG_OP_AND,
     SAT_FORMULA_TAG_OP_XOR,
@@ -35,14 +39,22 @@ enum sat_formula_tag_t {
 typedef enum sat_formula_tag_t SatFormulaTag;
 typedef struct sat_formula *SatFormula;
 
+/* allocate and return a new sat_formula element representing the given literal */
 struct sat_formula * sat_formula_new_literal (long int literal);
+/* allocate and return a new sat_formula element representing the given operation with given operands */
 struct sat_formula * sat_formula_new_operation (SatFormulaTag tag, SatFormula left, SatFormula right);
+/* recursively free the given sat_formula tree */
 void sat_formula_free (SatFormula *fpointer);
 
+/* recursively print the given sat_formula */
 void sat_formula_print (SatFormula formula);
+/* parse and return the given formula into an allocated sat_formula tree */
 SatFormula sat_formula_parse (const char *expr);
 
+/* recursively duplicate the given sat_formula tree */
 SatFormula sat_formula_duplicate (SatFormula formula);
+/* transforms and returns a given sat_formula tree into a CNF formula represented
+ * as a GList of clauses, where each clause is a GQueue of literals as long int */
 GList * sat_formula_to_cnf (SatFormula formula);
 
 #endif

@@ -22,12 +22,16 @@
 
 int main (int argc, char *argv[])
 {
+    /* arguments */
     if (argc >= 3) {
         printf ("ERROR: too many arguments\n");
+        return 1;
     }
 
+    /* new sat shell */
     SatShell shell = sat_shell_new ();
 
+    /* run */
     if (shell != NULL) {
         if (argc == 2) {
             sat_shell_run_script (shell, argv[1]);
@@ -36,6 +40,7 @@ int main (int argc, char *argv[])
         }
     }
 
+    /* free */
     sat_shell_free (&shell);
 
     return 0;

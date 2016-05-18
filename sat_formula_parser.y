@@ -23,7 +23,7 @@
 #include "sat_formula_lexer.h"
 
 static int yyerror(SatFormula *formula, yyscan_t scanner, const char *msg) {
-    // Add error handling routine as needed
+    /* Add error handling routine as needed */
     return 0;
 }
  
@@ -40,6 +40,8 @@ typedef void* yyscan_t;
 
 %output  "sat_formula_parser.c"
 %defines "sat_formula_parser.h"
+%define api.prefix {sat_formula_yy}
+
  
 %define api.pure
 %lex-param   { yyscan_t scanner }

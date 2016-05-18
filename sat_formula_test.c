@@ -23,7 +23,7 @@
 int main (int argc, char *argv[])
 {
     SatFormula formula = NULL;
-    const char *expr = "1 & 2";
+    const char *expr = "1 & 2 | 3 == 4";
     if (argc > 1) {
         expr = argv[1];
     }
@@ -35,10 +35,10 @@ int main (int argc, char *argv[])
     GList *clause_list = sat_formula_to_cnf (formula);
 
     for (GList *li1 = clause_list; li1 != NULL; li1 = li1->next) {
-        GList *clause = li1->data;
+        GQueue *clause = li1->data;
         printf ("[");
-        for (GList *li2 = clause; li2 != NULL; li2 = li2->next) {
-            long int lit = GPOINTER_TO_INT (li2->data);
+        for (GList *li2 = clause->head; li2 != NULL; li2 = li2->next) {
+            long int lit = GPOINTER_TO_SIZE (li2->data);
             if (li2->next != NULL) {
                 printf ("%ld, ", lit);
             } else {
@@ -46,7 +46,7 @@ int main (int argc, char *argv[])
             }
         }
         printf ("]\n");
-        g_list_free (clause);
+        g_queue_free (clause);
     }
 
     g_list_free (clause_list);

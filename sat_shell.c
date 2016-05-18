@@ -1,29 +1,59 @@
+/*
+ *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  Copyright (C) 2016  Andreas Dixius
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include "sat_shell.h"
 #include "sat_problem.h"
 
 #include <tclln.h>
 #include <tcl.h>
 #include <glib.h>
-#include <stdlib.h>
 #include <string.h>
 
+/* sat_shell data */
 struct sat_shell {
+    /* tclln data */
     TclLN tclln;
+    /* sat_problem data */
     SatProblem sat;
 };
 
+/* Tcl helper function for parsing boolean arguments */
+static int sat_shell_tcl_bool_parse (ClientData client_data, Tcl_Obj *obj, void *dest_ptr);
+/* Tcl helper function for parsing lists in GSLists */
+static int sat_shell_tcl_string_list_parse (ClientData client_data, Tcl_Obj *obj, void *dest_ptr);
+/* Tcl helper function for parsing lists of lists in GSLists of GSLists */
+static int sat_shell_tcl_string_list_list_parse (ClientData client_data, Tcl_Obj *obj, void *dest_ptr);
+
+/* tcl commands */
 static int sat_shell_command_add_clause      (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_add_encoding    (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_add_formula     (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_solve           (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_reset           (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
+static int sat_shell_command_cancel_solution (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_get_var_result  (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_get_var_mapping (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_get_clauses     (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 
+/* allocate and return new sat_shell */
 struct sat_shell * sat_shell_new ()
 {
-    struct sat_shell *result = (struct sat_shell *) malloc (sizeof (struct sat_shell));
+    struct sat_shell *result = g_slice_new (struct sat_shell);
 
     if (result == NULL) return NULL;
 
@@ -35,16 +65,18 @@ struct sat_shell * sat_shell_new ()
 
     tclln_provide_completion_command (result->tclln, NULL);
 
-    tclln_add_command (result->tclln, "add_clause",      (const char * const []) {"-clause", "-list", "-help", NULL}, sat_shell_command_add_clause,      (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "add_encoding",    (const char * const []) {"-literals", "-encoding", NULL},    sat_shell_command_add_encoding,    (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "add_formula",     (const char * const []) {"-formula", "-mapping", NULL},      sat_shell_command_add_formula,     (ClientData) result, NULL);
+    tclln_add_command (result->tclln, "add_clause",      (const char * const []) {"-clause", "-list", "-help", NULL},    sat_shell_command_add_clause,      (ClientData) result, NULL);
+    tclln_add_command (result->tclln, "add_encoding",    (const char * const []) {"-literals", "-encoding", "-parameter", NULL},
+            sat_shell_command_add_encoding,    (ClientData) result, NULL);
+    tclln_add_command (result->tclln, "add_formula",     (const char * const []) {"-formula", "-mapping", NULL},         sat_shell_command_add_formula,     (ClientData) result, NULL);
     tclln_add_command (result->tclln, "solve",
             (const char * const []) {"-tempfile_keep", "-tempfile_clean", "-tempfile_base", "-compress_cnf", "-plain_cnf", "-solver_binary", "-solution_on_stdout", "-help", NULL},
             sat_shell_command_solve, (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "reset",           (const char * const []) {"-help", NULL},                     sat_shell_command_reset,           (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "get_var_result",  (const char * const []) {"-var", "-help", NULL},             sat_shell_command_get_var_result,  (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "get_var_mapping", (const char * const []) {"-name", "-number", "-help", NULL}, sat_shell_command_get_var_mapping, (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "get_clauses",     (const char * const []) {"-help", NULL},                     sat_shell_command_get_clauses,     (ClientData) result, NULL);
+    tclln_add_command (result->tclln, "reset",           (const char * const []) {"-help", NULL},                        sat_shell_command_reset,           (ClientData) result, NULL);
+    tclln_add_command (result->tclln, "cancel_solution", (const char * const []) {"-help", NULL},                        sat_shell_command_cancel_solution, (ClientData) result, NULL);
+    tclln_add_command (result->tclln, "get_var_result",  (const char * const []) {"-var", "-assignment", "-help", NULL}, sat_shell_command_get_var_result,  (ClientData) result, NULL);
+    tclln_add_command (result->tclln, "get_var_mapping", (const char * const []) {"-name", "-number", "-help", NULL},    sat_shell_command_get_var_mapping, (ClientData) result, NULL);
+    tclln_add_command (result->tclln, "get_clauses",     (const char * const []) {"-help", NULL},                        sat_shell_command_get_clauses,     (ClientData) result, NULL);
 
     tclln_set_prompt  (result->tclln, "sat-shell> ",
                                       "         : ");
@@ -58,6 +90,7 @@ struct sat_shell * sat_shell_new ()
     return result;
 }
 
+/* free sat */
 void sat_shell_free (struct sat_shell **sat)
 {
     if (sat == NULL) return;
@@ -73,10 +106,11 @@ void sat_shell_free (struct sat_shell **sat)
         sat_problem_free (&(s->sat));
     }
 
-    free (s);
+    g_slice_free (struct sat_shell, s);
     *sat = NULL;
 }
 
+/* run sat shell in shell mode */
 void sat_shell_run_shell (struct sat_shell *sat)
 {
     if (sat == NULL) return;
@@ -85,6 +119,7 @@ void sat_shell_run_shell (struct sat_shell *sat)
     tclln_run (sat->tclln);
 }
 
+/* run sat shell in script mode: execute given script */
 void sat_shell_run_script (struct sat_shell *sat, const char *script)
 {
     if (sat == NULL) return;
@@ -93,14 +128,37 @@ void sat_shell_run_script (struct sat_shell *sat, const char *script)
     tclln_run_file (sat->tclln, script, false);
 }
 
-static int sat_shell_tcl_string_list_parse (ClientData client_data, Tcl_Obj *obj, void *dest_ptr)
+/* Tcl helper function for parsing boolean arguments */
+static int sat_shell_tcl_bool_parse (ClientData client_data, Tcl_Obj *obj, void *dest_ptr)
 {
-    GList **list_dest = (GList **) dest_ptr;
+    bool *bool_dest = (bool *) dest_ptr;
     if (dest_ptr == NULL) {
         return 1;
     }
 
-    GList *result = NULL;
+    if (obj == NULL) {
+        return -1;
+    }
+
+    int bool_result;
+    if (Tcl_GetBooleanFromObj (NULL, obj, &bool_result) != TCL_OK) {
+        return -1;
+    }
+
+    *bool_dest = (bool_result ? true : false);
+
+    return 1;
+}
+
+/* Tcl helper function for parsing lists in GSLists */
+static int sat_shell_tcl_string_list_parse (ClientData client_data, Tcl_Obj *obj, void *dest_ptr)
+{
+    GSList **list_dest = (GSList **) dest_ptr;
+    if (dest_ptr == NULL) {
+        return 1;
+    }
+
+    GSList *result = NULL;
 
     if (obj == NULL) {
         return 1;
@@ -116,30 +174,31 @@ static int sat_shell_tcl_string_list_parse (ClientData client_data, Tcl_Obj *obj
         Tcl_Obj *lit;
         temp_result = Tcl_ListObjIndex (NULL, in_list, i, &lit);
         if (temp_result != TCL_OK) {
-            g_list_free (result);
+            g_slist_free (result);
             return -1;
         }
         if (lit == NULL) {
-            g_list_free (result);
+            g_slist_free (result);
             return -1;
         }
         char *lit_str = Tcl_GetString (lit);
 
-        result = g_list_prepend (result, lit_str);
+        result = g_slist_prepend (result, lit_str);
     }
 
-    *list_dest = g_list_reverse(result);
+    *list_dest = g_slist_reverse(result);
     return 1;
 }
 
+/* Tcl helper function for parsing lists of lists in GSLists of GSLists */
 static int sat_shell_tcl_string_list_list_parse (ClientData client_data, Tcl_Obj *obj, void *dest_ptr)
 {
-    GList **list_dest = (GList **) dest_ptr;
+    GSList **list_dest = (GSList **) dest_ptr;
     if (dest_ptr == NULL) {
         return 1;
     }
 
-    GList *result = NULL;
+    GSList *result = NULL;
 
     if (obj == NULL) {
         return 1;
@@ -152,7 +211,7 @@ static int sat_shell_tcl_string_list_list_parse (ClientData client_data, Tcl_Obj
     if (temp_result != TCL_OK) return -1;
 
     for (int i = 0; i < len; i++) {
-        GList *result_sub = NULL;
+        GSList *result_sub = NULL;
         Tcl_Obj *list_sub;
         temp_result = Tcl_ListObjIndex (NULL, in_list, i, &list_sub);
         if (temp_result != TCL_OK) {
@@ -171,36 +230,34 @@ static int sat_shell_tcl_string_list_list_parse (ClientData client_data, Tcl_Obj
             Tcl_Obj *lit;
             temp_result = Tcl_ListObjIndex (NULL, list_sub, i_sub, &lit);
             if (temp_result != TCL_OK) {
-                g_list_free (result_sub);
+                g_slist_free (result_sub);
                 goto string_list_list_parse_error_exit;
             }
             if (lit == NULL) {
-                g_list_free (result_sub);
+                g_slist_free (result_sub);
                 goto string_list_list_parse_error_exit;
             }
             char *lit_str = Tcl_GetString (lit);
 
-            result_sub = g_list_prepend (result_sub, lit_str);
+            result_sub = g_slist_prepend (result_sub, lit_str);
         }
-        result_sub = g_list_reverse (result_sub);
-        result = g_list_prepend (result, result_sub);
+        result_sub = g_slist_reverse (result_sub);
+        result = g_slist_prepend (result, result_sub);
     }
 
-    *list_dest = g_list_reverse (result);
+    *list_dest = g_slist_reverse (result);
     return 1;
 
 string_list_list_parse_error_exit:
-    for (GList *li = result; li != NULL; li = li->next) {
-        g_list_free (li->data);
-    }
-    g_list_free (result);
+    g_slist_free_full (result, (GDestroyNotify) g_slist_free);
     return -1;
 }
 
+/* Tcl command for adding clauses: add_clause -clause <clause as list> | -list <list of clauses as lists> */
 static int sat_shell_command_add_clause (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
-    GList *clause = NULL;
-    GList *clist  = NULL;
+    GSList *clause = NULL;
+    GSList *clist  = NULL;
     SatProblem sat = ((struct sat_shell *) client_data)->sat;
 
     Tcl_ArgvInfo arg_table [] = {
@@ -219,31 +276,35 @@ static int sat_shell_command_add_clause (ClientData client_data, Tcl_Interp *int
     }
 
     if (clause != NULL) {
-        sat_problem_add_clause_glist (sat, clause);
+        sat_problem_add_clause_gslist (sat, clause);
 
-        g_list_free (clause);
+        g_slist_free (clause);
     }
 
     if (clist != NULL) {
-        for (GList *li = clist; li != NULL; li = li->next) {
-            sat_problem_add_clause_glist (sat, (GList *) li->data);
-            g_list_free ((GList *) li->data);
+        for (GSList *li = clist; li != NULL; li = li->next) {
+            GSList *i_clause = (GSList *) li->data;
+            sat_problem_add_clause_gslist (sat, i_clause);
+            g_slist_free (i_clause);
         }
-        g_list_free (clist);
+        g_slist_free (clist);
     }
 
     return TCL_OK;
 }
 
+/* Tcl command for adding encoding: add_encoding -literals <literals as list> -encoding (1ofn|mofn) [-parameter <parameter>] */
 static int sat_shell_command_add_encoding (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
-    GList *lit_list = NULL;
+    GSList *lit_list = NULL;
     SatProblem sat = ((struct sat_shell *) client_data)->sat;
     const char *encoding = NULL;
+    int parameter = -1;
 
     Tcl_ArgvInfo arg_table [] = {
-        {TCL_ARGV_FUNC,     "-literals", (void*) (Tcl_ArgvFuncProc*) sat_shell_tcl_string_list_parse, (void *) &lit_list, "the list of literals to apply encoding to", NULL},
-        {TCL_ARGV_STRING,   "-encoding", NULL,                                                        (void *) &encoding, "the encoding to apply: one of \"1ofn\", \"2ofn\", \"1ofn_order\"", NULL},
+        {TCL_ARGV_FUNC,     "-literals",  (void*) (Tcl_ArgvFuncProc*) sat_shell_tcl_string_list_parse, (void *) &lit_list,  "the list of literals to apply encoding to", NULL},
+        {TCL_ARGV_STRING,   "-encoding",  NULL,                                                        (void *) &encoding,  "the encoding to apply: one of \"1ofn\", \"2ofn\", \"mofn\" + parameter = m, \"1ofn_order\"", NULL},
+        {TCL_ARGV_INT,      "-parameter", NULL,                                                        (void *) &parameter, "integer parameter for some encodings", NULL},
         TCL_ARGV_AUTO_HELP,
         TCL_ARGV_TABLE_END
     };
@@ -257,32 +318,41 @@ static int sat_shell_command_add_encoding (ClientData client_data, Tcl_Interp *i
     }
     if (encoding == NULL) {
         Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: expected an encoding", -1));
-        g_list_free (lit_list);
+        g_slist_free (lit_list);
         return TCL_ERROR;
     }
 
     if (strcmp (encoding, "1ofn") == 0) {
-        sat_problem_add_1ofn_direct_encoding (sat, lit_list);
+        sat_problem_add_mofn_direct_encoding (sat, lit_list, 1);
     } else if (strcmp (encoding, "1ofn_order") == 0) {
         sat_problem_add_1ofn_order_encoding (sat, lit_list);
     } else if (strcmp (encoding, "2ofn") == 0) {
-        sat_problem_add_2ofn_direct_encoding (sat, lit_list);
+        sat_problem_add_mofn_direct_encoding (sat, lit_list, 2);
+    } else if (strcmp (encoding, "mofn") == 0) {
+        if (parameter > 0) {
+            sat_problem_add_mofn_direct_encoding (sat, lit_list, parameter);
+        } else {
+            Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: encoding \"mofn\" expects m as parameter in range 1 ... n", -1));
+            g_slist_free (lit_list);
+            return TCL_ERROR;
+        }
     } else {
-        Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: encoding has to be one of \"1ofn\", \"2ofn\", \"1ofn_order\"", -1));
-        g_list_free (lit_list);
+        Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: encoding has to be one of \"1ofn\", \"2ofn\", \"mofn\", \"1ofn_order\"", -1));
+        g_slist_free (lit_list);
         return TCL_ERROR;
     }
 
-    g_list_free (lit_list);
+    g_slist_free (lit_list);
 
     return TCL_OK;
 }
 
+/* Tcl command for adding formulas: add_formula -formula <formula string> -mapping <literal mapping as list> */
 static int sat_shell_command_add_formula (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     SatProblem sat = ((struct sat_shell *) client_data)->sat;
 
-    GList *mapping_list = NULL;
+    GSList *mapping_list = NULL;
     const char *formula = NULL;
 
     Tcl_ArgvInfo arg_table [] = {
@@ -297,7 +367,7 @@ static int sat_shell_command_add_formula (ClientData client_data, Tcl_Interp *in
 
     if (formula == NULL) {
         Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: expected a formula to encode", -1));
-        g_list_free (mapping_list);
+        g_slist_free (mapping_list);
         return TCL_ERROR;
     }
     if (mapping_list == NULL) {
@@ -306,16 +376,18 @@ static int sat_shell_command_add_formula (ClientData client_data, Tcl_Interp *in
     }
 
     if (!sat_problem_add_formula_mapping (sat, formula, mapping_list)) {
-        g_list_free (mapping_list);
+        g_slist_free (mapping_list);
         Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: encoding + mapping failed", -1));
         return TCL_ERROR;
     }
 
-    g_list_free (mapping_list);
+    g_slist_free (mapping_list);
 
     return TCL_OK;
 }
 
+/* Tcl command for solving problem: solve [-tempfile_base <prefix>] [-solver_binary <binary>] [-solution_on_stdout] [-tempfile_clean|-tempfile_keep]
+ *                                        [-compress_cnf|-plain_cnf] */
 static int sat_shell_command_solve (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     SatProblem sat = ((struct sat_shell *) client_data)->sat;
@@ -340,12 +412,8 @@ static int sat_shell_command_solve (ClientData client_data, Tcl_Interp *interp, 
         TCL_ARGV_TABLE_END
     };
 
-    printf ("DEBUG: cleanup = %d\n", cleanup);
-
     int result = Tcl_ParseArgsObjv (interp, arg_table, &objc, objv, NULL);
     if (result != TCL_OK) return result;
-
-    printf ("DEBUG: cleanup = %d\n", cleanup);
 
     sat_problem_solve (sat, tmp_file_basename, solver_bin, solution_on_stdout, cleanup, cnf_gz);
 
@@ -362,6 +430,7 @@ static int sat_shell_command_solve (ClientData client_data, Tcl_Interp *interp, 
     return TCL_OK;
 }
 
+/* Tcl command for resetting problem: reset */
 static int sat_shell_command_reset (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     struct sat_shell *shell = (struct sat_shell *) client_data;
@@ -387,13 +456,12 @@ static int sat_shell_command_reset (ClientData client_data, Tcl_Interp *interp, 
     return TCL_OK;
 }
 
-static int sat_shell_command_get_var_result (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+/* Tcl command for cancelling current solution: cancel_solution */
+static int sat_shell_command_cancel_solution (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     SatProblem sat = ((struct sat_shell *) client_data)->sat;
-    const char *var_name = NULL;
 
     Tcl_ArgvInfo arg_table [] = {
-        {TCL_ARGV_STRING,   "-var", NULL, (void *) &var_name, "var name to look up", NULL},
         TCL_ARGV_AUTO_HELP,
         TCL_ARGV_TABLE_END
     };
@@ -401,19 +469,64 @@ static int sat_shell_command_get_var_result (ClientData client_data, Tcl_Interp 
     int result = Tcl_ParseArgsObjv (interp, arg_table, &objc, objv, NULL);
     if (result != TCL_OK) return result;
 
-    bool error = false;
-    bool retval = sat_problem_var_result (sat, var_name, &error);
-
-    if (error) {
-        Tcl_SetObjResult (interp, Tcl_NewStringObj ("error while lookup up variable", -1));
-        return TCL_ERROR;
-    }
-
-    Tcl_SetObjResult (interp, Tcl_NewBooleanObj (retval));
+    sat_problem_cancel_solution (sat);
 
     return TCL_OK;
 }
 
+/* Tcl command for getting results of variables: get_var_result [-var <var name>] [-assignment <assignment>] */
+static int sat_shell_command_get_var_result (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    SatProblem sat       = ((struct sat_shell *) client_data)->sat;
+    const char *var_name = NULL;
+    bool assignment      = true;
+
+    Tcl_ArgvInfo arg_table [] = {
+        {TCL_ARGV_STRING,   "-var",        NULL,                                                 (void *) &var_name,   "var name to look up", NULL},
+        {TCL_ARGV_FUNC,     "-assignment", (void*) (Tcl_ArgvFuncProc*) sat_shell_tcl_bool_parse, (void *) &assignment, "return list of variables assigned to given value", NULL},
+        TCL_ARGV_AUTO_HELP,
+        TCL_ARGV_TABLE_END
+    };
+
+    int result = Tcl_ParseArgsObjv (interp, arg_table, &objc, objv, NULL);
+    if (result != TCL_OK) return result;
+
+    if (var_name != NULL) {
+        bool error = false;
+        bool retval = sat_problem_var_result (sat, var_name, &error);
+
+        if (error) {
+            Tcl_SetObjResult (interp, Tcl_NewStringObj ("error while looking up variable", -1));
+            return TCL_ERROR;
+        }
+
+        Tcl_SetObjResult (interp, Tcl_NewBooleanObj (retval));
+    } else {
+        bool error = false;
+        GSList *result_list = sat_problem_var_result_list (sat, assignment, &error);
+
+        if (error) {
+            Tcl_SetObjResult (interp, Tcl_NewStringObj ("error while looking up results", -1));
+            return TCL_ERROR;
+        }
+
+        Tcl_Obj *retval = Tcl_NewListObj (0, NULL);
+
+        for (GSList *li = result_list; li != NULL; li = li->next) {
+            const char *var_name = li->data;
+            Tcl_Obj *var_obj = Tcl_NewStringObj (var_name, -1);
+            Tcl_ListObjAppendElement (interp, retval, var_obj);
+        }
+
+        Tcl_SetObjResult (interp, retval);
+
+        g_slist_free (result_list);
+    }
+
+    return TCL_OK;
+}
+
+/* Tcl command for obtaining mapping of variables: get_var_mapping [-name <var name>] [-number <var number>] */
 static int sat_shell_command_get_var_mapping (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     SatProblem sat = ((struct sat_shell *) client_data)->sat;
@@ -455,6 +568,7 @@ static int sat_shell_command_get_var_mapping (ClientData client_data, Tcl_Interp
     return TCL_OK;
 }
 
+/* Tcl command for obtaining all clauses: get_clauses */
 static int sat_shell_command_get_clauses (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
 {
     SatProblem sat = ((struct sat_shell *) client_data)->sat;
@@ -471,9 +585,9 @@ static int sat_shell_command_get_clauses (ClientData client_data, Tcl_Interp *in
     Tcl_Obj *retval           = Tcl_NewListObj (0, NULL);
     GString *temp_str         = g_string_new (NULL);
     GHashTable *lit_to_tclobj = g_hash_table_new (g_direct_hash, g_direct_equal);
-    GList *clause_list        = sat_problem_get_clauses_mapped (sat);
+    GQueue *clause_list        = sat_problem_get_clauses_mapped (sat);
 
-    for (GList *li = clause_list; li != NULL; li = li->next) {
+    for (GList *li = clause_list->head; li != NULL; li = li->next) {
         long int *clause = (long int *) li->data;
         if (clause == NULL) continue;
 
@@ -482,7 +596,7 @@ static int sat_shell_command_get_clauses (ClientData client_data, Tcl_Interp *in
             long int lit = clause[i];
 
             Tcl_Obj *lit_obj = NULL;
-            bool exists = g_hash_table_lookup_extended (lit_to_tclobj, GINT_TO_POINTER (lit), NULL, (void *) &lit_obj);
+            bool exists = g_hash_table_lookup_extended (lit_to_tclobj, GSIZE_TO_POINTER (lit), NULL, (void *) &lit_obj);
             if (!exists) {
                 if (lit < 0) {
                     const char *var_name = sat_problem_get_varname_from_number (sat, -lit);
@@ -492,7 +606,7 @@ static int sat_shell_command_get_clauses (ClientData client_data, Tcl_Interp *in
                     g_string_printf (temp_str, "%s", var_name);
                 }
                 lit_obj = Tcl_NewStringObj (temp_str->str, -1);
-                g_hash_table_insert (lit_to_tclobj, GINT_TO_POINTER (lit), lit_obj);
+                g_hash_table_insert (lit_to_tclobj, GSIZE_TO_POINTER (lit), lit_obj);
             }
 
             Tcl_ListObjAppendElement (interp, tcl_clause, lit_obj);
@@ -502,7 +616,6 @@ static int sat_shell_command_get_clauses (ClientData client_data, Tcl_Interp *in
 
     /* cleanup and return */
     g_string_free (temp_str, true);
-    g_list_free (clause_list);
     g_hash_table_destroy (lit_to_tclobj);
 
     Tcl_SetObjResult (interp, retval);

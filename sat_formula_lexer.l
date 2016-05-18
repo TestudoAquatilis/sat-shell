@@ -29,6 +29,7 @@
  
 %}
 
+%option prefix="sat_formula_yy"
 %option outfile="sat_formula_lexer.c" header-file="sat_formula_lexer.h"
 %option warn nodefault
  
@@ -44,9 +45,9 @@ RBRACE      "}"
 LTAG        "<"
 RTAG        ">"
 
-INVERT      "!"|"-"|"~"|"not"|"NOT"
-AND         "*"|"&&"|"&"|"and"|"AND"
-OR          "+"|"||"|"|"|"or"|"OR"
+INVERT      "!"|"-"|"~"|"not"|"NOT"|"¬"
+AND         "*"|"&&"|"&"|"and"|"AND"|"∧"
+OR          "+"|"||"|"|"|"or"|"OR"|"∨"
 XOR         "^"|"!="|"xor"|"XOR"
 EQUAL       "<->"|"<=>"|"="|"=="|"xnor"|"XNOR"
 RIMPL       "->"|"=>"

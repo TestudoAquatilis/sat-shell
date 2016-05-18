@@ -12,3 +12,11 @@
    ...
    fun:TclThreadAllocObj
 }
+{
+   <Suppress_libTcl_TclpThreadCreate_mem>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:TclpThreadCreate
+}
+

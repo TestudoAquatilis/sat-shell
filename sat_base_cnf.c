@@ -26,26 +26,32 @@
 #include <glib.h>
 #include <zlib.h>
 
+/* base cnf data struct */
 struct base_cnf {
-    unsigned long int max_literal;
-    unsigned long int num_clauses;
+    /* maximum variable */
+    unsigned long int max_var;
 
-    GList *clauses;
-    GList *solution;
+    /* GQueue containing clauses as 0-terminated arrays of literals as (long int) */
+    GQueue *clauses;
+    /* GSList containing solution literal values as (long int) - NULL if not solved */
+    GSList *solution;
 };
 
+/* returns a newly allocated BaseCNF */
 struct base_cnf * base_cnf_new ()
 {
-    struct base_cnf *result = (struct base_cnf *) malloc (sizeof (struct base_cnf));
+    struct base_cnf *result = g_slice_new (struct base_cnf);
+    if (result == NULL) return NULL;
 
-    result->max_literal = 0;
-    result->num_clauses = 0;
-    result->clauses  = NULL;
+    result->max_var = 0;
+    result->clauses  = g_queue_new ();
+    if (result->clauses == NULL) return NULL;
     result->solution = NULL;
 
     return result;
 }
 
+/* frees data of BaseCNF and sets the referenced pointer to NULL */
 void base_cnf_free (struct base_cnf **cnf)
 {
     if (cnf == NULL) return;
@@ -54,31 +60,37 @@ void base_cnf_free (struct base_cnf **cnf)
     if (rcnf == NULL) return;
 
     if (rcnf->solution != NULL) {
-        g_list_free (rcnf->solution);
+        g_slist_free (rcnf->solution);
     }
 
     if (rcnf->clauses != NULL) {
-        for (GList *cl = rcnf->clauses; cl != NULL; cl = cl->next) {
+        for (GList *cl = rcnf->clauses->head; cl != NULL; cl = cl->next) {
             long int *clause = (long int *) cl->data;
-            if (clause != NULL) free (clause);
+            if (clause != NULL) {
+                int len = 0;
+                while (clause[len] != 0) len++;
+                g_slice_free1 (len+1, clause);
+            }
             cl->data = NULL;
         }
-        g_list_free (rcnf->clauses);
+        g_queue_free (rcnf->clauses);
     }
 
-    free (rcnf);
+    g_slice_free (struct base_cnf, rcnf);
 
     *cnf = NULL;
 }
 
+/* frees existing solution */
 static void base_cnf_clear_solution (struct base_cnf *cnf)
 {
     if (cnf->solution != NULL) {
-        g_list_free (cnf->solution);
+        g_slist_free (cnf->solution);
     }
     cnf->solution = NULL;
 }
 
+/* adds a clause to *cnf given as 0-terminated array of literals as (long int) */
 void base_cnf_add_clause_array (struct base_cnf *cnf, const long int *clause)
 {
     if (cnf == NULL) return;
@@ -88,51 +100,78 @@ void base_cnf_add_clause_array (struct base_cnf *cnf, const long int *clause)
     while (clause[len] != 0) len++;
     if (len == 0) return;
 
-    long int *new_clause = malloc (sizeof (long int) * (len + 1));
+    long int *new_clause = g_slice_alloc (sizeof (long int) * (len + 1));
 
     for (int i = 0; i < len; i++) {
         long int i_lit = clause[i];
         new_clause[i] = i_lit;
 
         if (i_lit < 0) i_lit = -i_lit;
-        
-        if (i_lit > cnf->max_literal) cnf->max_literal = i_lit;
+
+        if (i_lit > cnf->max_var) cnf->max_var = i_lit;
     }
     new_clause[len] = 0;
 
-    cnf->clauses = g_list_prepend (cnf->clauses, (gpointer) new_clause);
-    cnf->num_clauses++;
+    g_queue_push_tail (cnf->clauses, (gpointer) new_clause);
 
     base_cnf_clear_solution (cnf);
 }
 
-void base_cnf_add_clause_glist (BaseCNF cnf, GList *clause)
+/* adds a clause to *cnf given as GSList of literals as (long int) */
+void base_cnf_add_clause_gslist (BaseCNF cnf, GSList *clause)
 {
     if (cnf == NULL) return;
     if (clause == NULL) return;
 
-    unsigned int len = g_list_length (clause);
+    unsigned int len = g_slist_length (clause);
     if (len == 0) return;
 
-    long int *new_clause = malloc (sizeof (long int) * (len + 1));
+    long int *new_clause = g_slice_alloc (sizeof (long int) * (len + 1));
 
     int i = 0;
-    for (GList *li = clause; li != NULL; li = li->next, i++) {
-        long int i_lit = GPOINTER_TO_INT (li->data);
+    for (GSList *li = clause; li != NULL; li = li->next, i++) {
+        long int i_lit = GPOINTER_TO_SIZE (li->data);
         new_clause[i] = i_lit;
 
         if (i_lit < 0) i_lit = -i_lit;
-        
-        if (i_lit > cnf->max_literal) cnf->max_literal = i_lit;
+
+        if (i_lit > cnf->max_var) cnf->max_var = i_lit;
     }
     new_clause[len] = 0;
 
-    cnf->clauses = g_list_prepend (cnf->clauses, (gpointer) new_clause);
-    cnf->num_clauses++;
+    g_queue_push_tail (cnf->clauses, (gpointer) new_clause);
 
     base_cnf_clear_solution (cnf);
 }
 
+/* adds a clause to *cnf given as GQueue of literals as (long int) */
+void base_cnf_add_clause_gqueue (BaseCNF cnf, GQueue *clause)
+{
+    if (cnf == NULL) return;
+    if (clause == NULL) return;
+
+    unsigned int len = g_queue_get_length (clause);
+    if (len == 0) return;
+
+    long int *new_clause = g_slice_alloc (sizeof (long int) * (len + 1));
+
+    int i = 0;
+    for (GList *li = clause->head; li != NULL; li = li->next, i++) {
+        long int i_lit = GPOINTER_TO_SIZE (li->data);
+        new_clause[i] = i_lit;
+
+        if (i_lit < 0) i_lit = -i_lit;
+
+        if (i_lit > cnf->max_var) cnf->max_var = i_lit;
+    }
+    new_clause[len] = 0;
+
+    g_queue_push_tail (cnf->clauses, (gpointer) new_clause);
+
+    base_cnf_clear_solution (cnf);
+}
+
+/* prints a clause given as 0-terminated array of literals into file in DIMACS format */
 static void base_cnf_print_dimacs_clause (FILE *file, const long int *clause)
 {
     if (file == NULL) return;
@@ -148,6 +187,7 @@ static void base_cnf_print_dimacs_clause (FILE *file, const long int *clause)
     fprintf (file, "0\n");
 }
 
+/* prints a clause given as 0-terminated array of literals into gzip file in DIMACS format */
 static void base_cnf_print_dimacs_clause_gz (gzFile file, const long int *clause)
 {
     if (file == NULL) return;
@@ -163,46 +203,54 @@ static void base_cnf_print_dimacs_clause_gz (gzFile file, const long int *clause
     gzprintf (file, "0\n");
 }
 
-static void base_cnf_print_dimacs_header (FILE *file, unsigned long int max_literal, unsigned long int num_clauses)
+/* prints a DIMACS header into file for a formula with max_var variables and num_clauses clauses */
+static void base_cnf_print_dimacs_header (FILE *file, unsigned long int max_var, unsigned long int num_clauses)
 {
     if (file == NULL) return;
 
-    fprintf (file, "p cnf %ld %ld\n", max_literal, num_clauses);
+    fprintf (file, "p cnf %ld %ld\n", max_var, num_clauses);
 }
 
-static void base_cnf_print_dimacs_header_gz (gzFile file, unsigned long int max_literal, unsigned long int num_clauses)
+/* prints a DIMACS header into gzip file for a formula with max_var variables and num_clauses clauses */
+static void base_cnf_print_dimacs_header_gz (gzFile file, unsigned long int max_var, unsigned long int num_clauses)
 {
     if (file == NULL) return;
 
-    gzprintf (file, "p cnf %ld %ld\n", max_literal, num_clauses);
+    gzprintf (file, "p cnf %ld %ld\n", max_var, num_clauses);
 }
 
+/* prints a DIMACS file for the formula represented by *cnf */
 static void base_cnf_print_dimacs (struct base_cnf *cnf, FILE *file)
 {
     if (file == NULL) return;
     if (cnf == NULL) return;
 
-    base_cnf_print_dimacs_header (file, cnf->max_literal, cnf->num_clauses);
+    base_cnf_print_dimacs_header (file, cnf->max_var, g_queue_get_length (cnf->clauses));
 
-    for (GList *cl = cnf->clauses; cl != NULL; cl = cl->next) {
+    for (GList *cl = cnf->clauses->head; cl != NULL; cl = cl->next) {
         const long int *clause = (long int *) cl->data;
         base_cnf_print_dimacs_clause (file, clause);
     }
 }
 
+/* prints a gzip DIMACS file for the formula represented by *cnf */
 static void base_cnf_print_dimacs_gz (struct base_cnf *cnf, gzFile file)
 {
     if (file == NULL) return;
     if (cnf == NULL) return;
 
-    base_cnf_print_dimacs_header_gz (file, cnf->max_literal, cnf->num_clauses);
+    base_cnf_print_dimacs_header_gz (file, cnf->max_var, g_queue_get_length (cnf->clauses));
 
-    for (GList *cl = cnf->clauses; cl != NULL; cl = cl->next) {
+    for (GList *cl = cnf->clauses->head; cl != NULL; cl = cl->next) {
         const long int *clause = (long int *) cl->data;
         base_cnf_print_dimacs_clause_gz (file, clause);
     }
 }
 
+/* runs sat solver with binary path given by solver_binary, and cnf file given by filename_cnf
+ * solution is written to file given by filename_sol; if solution_on_stdout is true, solver is assumed
+ * to print solution onto stdout, otherwise into the file given as second argument.
+ * returns true on success, false otherwise */
 static bool base_cnf_run_solver (const char *solver_binary, const char *filename_cnf, const char *filename_sol, bool solution_on_stdout)
 {
     if (solver_binary == NULL) return false;
@@ -291,6 +339,7 @@ static bool base_cnf_run_solver (const char *solver_binary, const char *filename
     return result;
 }
 
+/* read a solution from file into *cnf */
 static void base_cnf_read_sol (struct base_cnf *cnf, FILE *file)
 {
     if (cnf == NULL) return;
@@ -320,7 +369,7 @@ static void base_cnf_read_sol (struct base_cnf *cnf, FILE *file)
     }
 
     /* solution */
-    GList *lit_list = NULL;
+    GSList *lit_list = NULL;
 
     while (true) {
         long int literal;
@@ -328,13 +377,18 @@ static void base_cnf_read_sol (struct base_cnf *cnf, FILE *file)
         if (match != 1) break;
         if (literal == 0) break;
 
-        lit_list = g_list_prepend (lit_list, GINT_TO_POINTER (literal));
+        lit_list = g_slist_prepend (lit_list, GSIZE_TO_POINTER (literal));
     }
 
-    lit_list = g_list_reverse (lit_list);
+    lit_list = g_slist_reverse (lit_list);
     cnf->solution = lit_list;
 }
 
+/* solves cnf, returns true on successful run, false if an error occurred.
+ * temporary files ar prefixed with tmp_file_name, solver binary solver_bin is used,
+ * solution_on_stdout: if true it is assumed that solver prints solution on stdout,
+ * cleanup: if true remove temporary files when finished,
+ * cnf_gz: if true use gzipped dimacs for cnf file */
 bool base_cnf_solve (struct base_cnf *cnf, const char *tmp_file_name, const char *solver_bin, bool solution_on_stdout, bool cleanup, bool cnf_gz)
 {
     if (cnf == NULL) return false;
@@ -343,7 +397,7 @@ bool base_cnf_solve (struct base_cnf *cnf, const char *tmp_file_name, const char
     size_t file_name_len = strlen (tmp_file_name) + 8;
 
     /* writing cnf */
-    char *cnf_file_name = malloc (sizeof (char) * file_name_len);
+    char *cnf_file_name = g_slice_alloc (sizeof (char) * file_name_len);
 
     FILE  *cnf_file    = NULL;
     gzFile cnf_file_gz = NULL;
@@ -354,7 +408,7 @@ bool base_cnf_solve (struct base_cnf *cnf, const char *tmp_file_name, const char
         cnf_file = fopen (cnf_file_name, "w");
         if (cnf_file == NULL) {
             printf ("ERROR: could not open file %s\n", cnf_file_name);
-            free (cnf_file_name);
+            g_slice_free1 (sizeof (char) * file_name_len, cnf_file_name);
             return false;
         }
     } else {
@@ -363,7 +417,7 @@ bool base_cnf_solve (struct base_cnf *cnf, const char *tmp_file_name, const char
         cnf_file_gz = gzopen (cnf_file_name, "w");
         if (cnf_file_gz == NULL) {
             printf ("ERROR: could not open file %s\n", cnf_file_name);
-            free (cnf_file_name);
+            g_slice_free1 (sizeof (char) * file_name_len, cnf_file_name);
             return false;
         }
     }
@@ -381,7 +435,7 @@ bool base_cnf_solve (struct base_cnf *cnf, const char *tmp_file_name, const char
     }
 
     /* solve */
-    char *sol_file_name = malloc (sizeof (char) * file_name_len);
+    char *sol_file_name = g_slice_alloc (sizeof (char) * file_name_len);
 
     snprintf (sol_file_name, file_name_len, "%s.sol", tmp_file_name);
 
@@ -394,8 +448,8 @@ bool base_cnf_solve (struct base_cnf *cnf, const char *tmp_file_name, const char
 
     if (!success) {
         if (cleanup) remove (cnf_file_name);
-        free (cnf_file_name);
-        free (sol_file_name);
+        g_slice_free1 (sizeof (char) * file_name_len, cnf_file_name);
+        g_slice_free1 (sizeof (char) * file_name_len, sol_file_name);
         return false;
     }
 
@@ -404,8 +458,8 @@ bool base_cnf_solve (struct base_cnf *cnf, const char *tmp_file_name, const char
     if (sol_file == NULL) {
         printf ("ERROR: could not open file %s\n", sol_file_name);
         if (cleanup) remove (cnf_file_name);
-        free (sol_file_name);
-        free (cnf_file_name);
+        g_slice_free1 (sizeof (char) * file_name_len, sol_file_name);
+        g_slice_free1 (sizeof (char) * file_name_len, cnf_file_name);
         return false;
     }
 
@@ -417,21 +471,41 @@ bool base_cnf_solve (struct base_cnf *cnf, const char *tmp_file_name, const char
     /* freeing stuff */
     if (cleanup) remove (cnf_file_name);
     if (cleanup) remove (sol_file_name);
-    free (cnf_file_name);
-    free (sol_file_name);
+    g_slice_free1 (sizeof (char) * file_name_len, cnf_file_name);
+    g_slice_free1 (sizeof (char) * file_name_len, sol_file_name);
 
     return true;
 }
 
-GList * base_cnf_clauses (struct base_cnf *cnf)
+/* make current solution of cnf invalid to optain another one on next solving */
+void base_cnf_cancel_solution (struct base_cnf *cnf)
 {
-    if (cnf == NULL) return NULL;
-    GList *result = g_list_copy (cnf->clauses);
-    result = g_list_reverse (result);
-    return result;
+    if (cnf == NULL) return;
+
+    GSList *cancel_clause = NULL;
+
+    for (GSList *li = cnf->solution; li != NULL; li = li->next) {
+        long int lit = -GPOINTER_TO_SIZE (li->data);
+
+        cancel_clause = g_slist_prepend (cancel_clause, GSIZE_TO_POINTER (lit));
+    }
+
+    base_cnf_add_clause_gslist (cnf, cancel_clause);
+
+    g_slist_free (cancel_clause);
 }
 
-GList * base_cnf_solution (struct base_cnf *cnf)
+/* return internal clauses of cnf as GQueue of 0-terminated arrays of literals as (long int).
+ * returned GQueue should not be modified. */
+GQueue* base_cnf_clauses (struct base_cnf *cnf)
+{
+    if (cnf == NULL) return NULL;
+    return cnf->clauses;
+}
+
+/* return solution (if satisfiable) or NULL if not or not yet solved as GSList of literals as (long int).
+ * returned GSList should not be modified. */
+GSList * base_cnf_solution (struct base_cnf *cnf)
 {
     if (cnf == NULL) return NULL;
     return cnf->solution;
