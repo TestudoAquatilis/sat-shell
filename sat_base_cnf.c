@@ -69,7 +69,7 @@ void base_cnf_free (struct base_cnf **cnf)
             if (clause != NULL) {
                 int len = 0;
                 while (clause[len] != 0) len++;
-                g_slice_free1 (len+1, clause);
+                g_slice_free1 (sizeof (long int) * (len + 1), clause);
             }
             cl->data = NULL;
         }
