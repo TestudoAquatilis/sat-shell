@@ -50,6 +50,7 @@ static int sat_shell_command_get_var_result  (ClientData client_data, Tcl_Interp
 static int sat_shell_command_get_var_mapping (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_get_clauses     (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_help            (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
+static int sat_shell_command_license         (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 
 /* command info */
 struct sat_shell_command_data {
@@ -111,6 +112,11 @@ static struct sat_shell_command_data sat_shell_command_data_list [] = {
         (const char * const []) {"-help", NULL},
         sat_shell_command_help,
         "Print this help text."
+    },
+    {"license",
+        (const char * const []) {"-help", NULL},
+        sat_shell_command_license,
+        "Print License information."
     },
     {NULL, NULL, NULL, NULL}
 };
@@ -733,4 +739,55 @@ static int sat_shell_command_help (ClientData client_data, Tcl_Interp *interp, i
     printf ("\n");
 
     return TCL_OK;
+}
+
+/* Tcl command for printing license information */
+static int sat_shell_command_license (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    Tcl_ArgvInfo arg_table [] = {
+        TCL_ARGV_AUTO_HELP,
+        TCL_ARGV_TABLE_END
+    };
+
+    int result = Tcl_ParseArgsObjv (interp, arg_table, &objc, objv, NULL);
+    if (result != TCL_OK) return result;
+
+    sat_shell_license_info (false);
+
+    return TCL_OK;
+}
+
+/* print license info: short/long version */
+void sat_shell_license_info (bool small)
+{
+    static const char *text_short =
+        "sat-shell " VERSION_STRING "  Copyright (C) 2016  Andreas Dixius\n"
+        "This program comes with ABSOLUTELY NO WARRANTY.\n"
+        "This is free software, and you are welcome to redistribute it under certain conditions.\n"
+        "Type \"license\" for more details, type \"help\" for help.\n"
+        "\n";
+
+    static const char *text_long =
+        "sat-shell is an interactive tcl-shell for solving satisfiability problems.\n"
+        "Copyright (C) 2016  Andreas Dixius\n"
+        "\n"
+        "This program is free software: you can redistribute it and/or modify\n"
+        "it under the terms of the GNU General Public License as published by\n"
+        "the Free Software Foundation, either version 3 of the License, or\n"
+        "(at your option) any later version.\n"
+        "\n"
+        "This program is distributed in the hope that it will be useful,\n"
+        "but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
+        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
+        "GNU General Public License for more details.\n"
+        "\n"
+        "You should have received a copy of the GNU General Public License\n"
+        "along with this program.  If not, see <http://www.gnu.org/licenses/>.\n"
+        "\n";
+
+    if (small) {
+        printf ("%s", text_short);
+    } else {
+        printf ("%s", text_long);
+    }
 }

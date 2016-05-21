@@ -19,6 +19,8 @@
 #ifndef __sat_shell_h__
 #define __sat_shell_h__
 
+#include <stdbool.h>
+
 typedef struct sat_shell *SatShell;
 
 /* allocate and return new sat_shell */
@@ -30,5 +32,8 @@ void sat_shell_free (SatShell *sat);
 void sat_shell_run_shell (SatShell sat);
 /* run sat shell in script mode: execute given script */
 void sat_shell_run_script (SatShell sat, const char *script);
+
+/* print license info: short/long version */
+void sat_shell_license_info (bool small);
 
 #endif

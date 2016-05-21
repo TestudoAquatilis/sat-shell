@@ -26,18 +26,21 @@
 struct sat_shell_options {
     char *script_name;
     bool version;
+    bool license;
 };
 
 /* command line options */
 static struct sat_shell_options options = {
     .script_name = NULL,
-    .version     = false
+    .version     = false,
+    .license     = false
 };
 
 /* command line options definition */
 static GOptionEntry option_entries[] = {
     {"script",  's', 0, G_OPTION_ARG_FILENAME, &options.script_name, "Execute tcl script from FILE instead of running in shell mode", "FILE"},
     {"version", 'v', 0, G_OPTION_ARG_NONE,     &options.version,     "Print version info",                                            NULL},
+    {"license", 'l', 0, G_OPTION_ARG_NONE,     &options.license,     "Print license info",                                            NULL},
     {NULL}
 };
 
@@ -70,10 +73,22 @@ int main (int argc, char *argv[])
         return 1;
     }
 
+    if (argc > 1) {
+        fprintf (stderr, "Error: unprocessed command line options\n");
+        return 1;
+    }
+
     if (options.version) {
         printf ("sat-shell version: %s\n", VERSION_STRING);
         return 0;
     }
+
+    if (options.license) {
+        sat_shell_license_info (false);
+        return 0;
+    }
+
+    sat_shell_license_info (true);
 
     /* new sat shell */
     SatShell shell = sat_shell_new ();
