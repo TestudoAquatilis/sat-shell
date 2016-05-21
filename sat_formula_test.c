@@ -1,5 +1,5 @@
 /*
- *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  sat-shell is an interactive tcl-shell for solving satisfiability problems.
  *  Copyright (C) 2016  Andreas Dixius
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -17,41 +17,72 @@
  */
 
 #include "sat_formula.h"
- 
+
 #include <stdio.h>
- 
+#include <stdbool.h>
+#include <string.h>
+#include <glib.h>
+
+char inbuf [1024];
+
 int main (int argc, char *argv[])
 {
     SatFormula formula = NULL;
-    const char *expr = "1 & 2 | 3 == 4";
+
+    GString *expr = g_string_new (NULL);
+    bool iterate  = true;
+
     if (argc > 1) {
-        expr = argv[1];
+        g_string_assign (expr, argv[1]);
+        iterate = false;
     }
 
-    formula = sat_formula_parse (expr);
-
-    sat_formula_print (formula);
-
-    GList *clause_list = sat_formula_to_cnf (formula);
-
-    for (GList *li1 = clause_list; li1 != NULL; li1 = li1->next) {
-        GQueue *clause = li1->data;
-        printf ("[");
-        for (GList *li2 = clause->head; li2 != NULL; li2 = li2->next) {
-            long int lit = GPOINTER_TO_SIZE (li2->data);
-            if (li2->next != NULL) {
-                printf ("%ld, ", lit);
-            } else {
-                printf ("%ld", lit);
+    while (true) {
+        if (iterate) {
+            g_string_assign (expr, "");
+            while (true) {
+                if (fgets (inbuf, 1024, stdin) != NULL) {
+                    g_string_append (expr, inbuf);
+                    if (expr->str [expr->len - 1] == '\n') break;
+                } else {
+                    break;
+                }
             }
         }
-        printf ("]\n");
-        g_queue_free (clause);
+
+        if (strcmp (expr->str, "exit\n") == 0) break;
+
+        formula = sat_formula_parse (expr->str);
+
+        sat_formula_print (formula);
+
+        GList *clause_list = sat_formula_to_cnf (formula);
+
+        for (GList *li1 = clause_list; li1 != NULL; li1 = li1->next) {
+            GQueue *clause = li1->data;
+            printf ("[");
+            for (GList *li2 = clause->head; li2 != NULL; li2 = li2->next) {
+                long int lit = GPOINTER_TO_SIZE (li2->data);
+                if (li2->next != NULL) {
+                    printf ("%ld, ", lit);
+                } else {
+                    printf ("%ld", lit);
+                }
+            }
+            printf ("]\n");
+            g_queue_free (clause);
+        }
+
+        g_list_free (clause_list);
+
+        sat_formula_free (&formula);
+
+        if (!iterate) break;
     }
 
-    g_list_free (clause_list);
-
-    sat_formula_free (&formula);
+    if (argc <= 1) {
+        g_string_free (expr, true);
+    }
 
     return 0;
 }

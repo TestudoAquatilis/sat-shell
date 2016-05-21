@@ -9,4 +9,5 @@ parser
 lexer
 sat-shell
 sat-formula-test
+pty-test
 todos.markdown

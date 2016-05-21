@@ -16,19 +16,34 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __sat_shell_h__
-#define __sat_shell_h__
+#include "pty_run.h"
 
-typedef struct sat_shell *SatShell;
+#include <stdio.h>
+#include <stdbool.h>
 
-/* allocate and return new sat_shell */
-SatShell sat_shell_new ();
-/* free sat */
-void sat_shell_free (SatShell *sat);
+int main (int argc, char *argv[])
+{
+    GSList *execlist = NULL;
 
-/* run sat shell in shell mode */
-void sat_shell_run_shell (SatShell sat);
-/* run sat shell in script mode: execute given script */
-void sat_shell_run_script (SatShell sat, const char *script);
+    if (argc <= 1) return -1;
 
-#endif
+    for (int i = 1; i < argc; i++) {
+        execlist = g_slist_prepend (execlist, argv[i]);
+    }
+    execlist = g_slist_reverse (execlist);
+
+    PTYRunData run_data = pty_run_new (execlist);
+    g_slist_free (execlist);
+
+    while (true) {
+        const char *line = pty_run_getline (run_data);
+
+        if (line == NULL) break;
+
+        fprintf (stderr, "PTY: %s\n", line);
+    }
+
+    pty_run_finish (&run_data);
+
+    return 0;
+}

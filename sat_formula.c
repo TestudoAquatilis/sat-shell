@@ -1,5 +1,5 @@
 /*
- *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  sat-shell is an interactive tcl-shell for solving satisfiability problems.
  *  Copyright (C) 2016  Andreas Dixius
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -46,7 +46,7 @@ static GQueue* sat_formula_clause_to_sorted_clause (GSList *formula_clause);
 
 /* process a sat_formula tree element in order to transform it into CNF.
  * non_cnf_formula is the tree element that is not a literal and is contained in
- * formula clause (GSList of formula tree elements). 
+ * formula clause (GSList of formula tree elements).
  * formula clause is the clause to transform. newly generated clauses in transformation
  * will be added to formula_clause_queue. */
 static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GSList *formula_clause, GQueue *formula_clause_queue);
@@ -92,6 +92,25 @@ struct sat_formula * sat_formula_new_literal (long int literal)
     return result;
 }
 
+/* allocate and return a new sat_formula element representing the inversion of given argument */
+struct sat_formula * sat_formula_new_inversion (struct sat_formula *arg)
+{
+    struct sat_formula *result = g_slice_new (struct sat_formula);
+    if (result == NULL) return NULL;
+
+    result->tag     = SAT_FORMULA_TAG_INVERSION;
+    result->literal = 0;
+    result->left_operand  = arg;
+    result->right_operand = NULL;
+
+    /* DEBUG
+    printf ("new formula: ");
+    sat_formula_print (result);
+    */
+
+    return result;
+}
+
 /* allocate and return a new sat_formula element representing the given operation with given operands */
 struct sat_formula * sat_formula_new_operation (enum sat_formula_tag_t tag, struct sat_formula *left, struct sat_formula *right)
 {
@@ -131,12 +150,17 @@ void sat_formula_free (struct sat_formula **fpointer)
 }
 
 /* recursively print the given sat_formula tree without final newline */
-static void sat_formula_print_nonewline (struct sat_formula *formula)
+static void sat_formula_print_nonewline (struct sat_formula *formula, int paran_level)
 {
     if (formula == NULL) {
         fprintf (stderr, "ERROR - null pointer!\n");
         return;
     }
+
+    const char *paran_open  = "([{<";
+    const char *paran_close = ")]}>";
+
+    int paran_level_sub = (paran_level + 1) % 4;
 
     switch (formula->tag) {
         case SAT_FORMULA_TAG_LITERAL:
@@ -144,49 +168,49 @@ static void sat_formula_print_nonewline (struct sat_formula *formula)
             break;
         case SAT_FORMULA_TAG_INVERSION:
             printf ("-");
-            sat_formula_print_nonewline (formula->left_operand);
+            sat_formula_print_nonewline (formula->left_operand, paran_level);
             break;
         case SAT_FORMULA_TAG_OP_OR:
-            printf ("(");
-            sat_formula_print_nonewline (formula->left_operand);
+            printf ("%c", paran_open[paran_level]);
+            sat_formula_print_nonewline (formula->left_operand, paran_level_sub);
             printf (" or ");
-            sat_formula_print_nonewline (formula->right_operand);
-            printf (")");
+            sat_formula_print_nonewline (formula->right_operand, paran_level_sub);
+            printf ("%c", paran_close[paran_level]);
             break;
         case SAT_FORMULA_TAG_OP_AND:
-            printf ("(");
-            sat_formula_print_nonewline (formula->left_operand);
+            printf ("%c", paran_open[paran_level]);
+            sat_formula_print_nonewline (formula->left_operand, paran_level_sub);
             printf (" and ");
-            sat_formula_print_nonewline (formula->right_operand);
-            printf (")");
+            sat_formula_print_nonewline (formula->right_operand, paran_level_sub);
+            printf ("%c", paran_close[paran_level]);
             break;
         case SAT_FORMULA_TAG_OP_XOR:
-            printf ("(");
-            sat_formula_print_nonewline (formula->left_operand);
+            printf ("%c", paran_open[paran_level]);
+            sat_formula_print_nonewline (formula->left_operand, paran_level_sub);
             printf (" xor ");
-            sat_formula_print_nonewline (formula->right_operand);
-            printf (")");
+            sat_formula_print_nonewline (formula->right_operand, paran_level_sub);
+            printf ("%c", paran_close[paran_level]);
             break;
         case SAT_FORMULA_TAG_OP_EQUAL:
-            printf ("(");
-            sat_formula_print_nonewline (formula->left_operand);
+            printf ("%c", paran_open[paran_level]);
+            sat_formula_print_nonewline (formula->left_operand, paran_level_sub);
             printf (" <=> ");
-            sat_formula_print_nonewline (formula->right_operand);
-            printf (")");
+            sat_formula_print_nonewline (formula->right_operand, paran_level_sub);
+            printf ("%c", paran_close[paran_level]);
             break;
         case SAT_FORMULA_TAG_OP_RIMPL:
-            printf ("(");
-            sat_formula_print_nonewline (formula->left_operand);
+            printf ("%c", paran_open[paran_level]);
+            sat_formula_print_nonewline (formula->left_operand, paran_level_sub);
             printf (" => ");
-            sat_formula_print_nonewline (formula->right_operand);
-            printf (")");
+            sat_formula_print_nonewline (formula->right_operand, paran_level_sub);
+            printf ("%c", paran_close[paran_level]);
             break;
         case SAT_FORMULA_TAG_OP_LIMPL:
-            printf ("(");
-            sat_formula_print_nonewline (formula->left_operand);
+            printf ("%c", paran_open[paran_level]);
+            sat_formula_print_nonewline (formula->left_operand, paran_level_sub);
             printf (" <= ");
-            sat_formula_print_nonewline (formula->right_operand);
-            printf (")");
+            sat_formula_print_nonewline (formula->right_operand, paran_level_sub);
+            printf ("%c", paran_close[paran_level]);
             break;
         default:
             fprintf (stderr, "ERROR - unknown tag!\n");
@@ -197,7 +221,7 @@ static void sat_formula_print_nonewline (struct sat_formula *formula)
 /* recursively print the given sat_formula */
 void sat_formula_print (struct sat_formula *formula)
 {
-    sat_formula_print_nonewline (formula);
+    sat_formula_print_nonewline (formula, 0);
     printf ("\n");
 }
 
@@ -360,7 +384,7 @@ static GQueue * sat_formula_clause_to_sorted_clause (GSList *formula_clause)
 
 /* process a sat_formula tree element in order to transform it into CNF.
  * non_cnf_formula is the tree element that is not a literal and is contained in
- * formula clause (GSList of formula tree elements). 
+ * formula clause (GSList of formula tree elements).
  * formula clause is the clause to transform. newly generated clauses in transformation
  * will be added to formula_clause_queue. */
 static void sat_formula_clause_process (struct sat_formula *non_cnf_formula, GSList *formula_clause, GQueue *formula_clause_queue)

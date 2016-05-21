@@ -1,5 +1,5 @@
 /*
- *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  sat-shell is an interactive tcl-shell for solving satisfiability problems.
  *  Copyright (C) 2016  Andreas Dixius
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -41,6 +41,8 @@ typedef struct sat_formula *SatFormula;
 
 /* allocate and return a new sat_formula element representing the given literal */
 struct sat_formula * sat_formula_new_literal (long int literal);
+/* allocate and return a new sat_formula element representing the inversion of given argument */
+struct sat_formula * sat_formula_new_inversion (SatFormula arg);
 /* allocate and return a new sat_formula element representing the given operation with given operands */
 struct sat_formula * sat_formula_new_operation (SatFormulaTag tag, SatFormula left, SatFormula right);
 /* recursively free the given sat_formula tree */

@@ -1,5 +1,5 @@
 /*
- *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  sat-shell is an interactive tcl-shell for solving satisfiability problems.
  *  Copyright (C) 2016  Andreas Dixius
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -49,6 +49,71 @@ static int sat_shell_command_cancel_solution (ClientData client_data, Tcl_Interp
 static int sat_shell_command_get_var_result  (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_get_var_mapping (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
 static int sat_shell_command_get_clauses     (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
+static int sat_shell_command_help            (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
+
+/* command info */
+struct sat_shell_command_data {
+    const char        *command;
+    const char *const *completion_list;
+    Tcl_ObjCmdProc    *proc;
+    const char        *help;
+};
+
+/* all commands and their data */
+static struct sat_shell_command_data sat_shell_command_data_list [] = {
+    {"add_clause",
+        (const char * const []) {"-clause", "-list", "-help", NULL},
+        sat_shell_command_add_clause,
+        "Add a clause or list of clauses to current sat problem."
+    },
+    {"add_encoding",
+        (const char * const []) {"-literals", "-encoding", "-parameter", NULL},
+        sat_shell_command_add_encoding,
+        "Add special encoding (e.g. 1 of n order encoding) for a list of literals."
+    },
+    {"add_formula",
+        (const char * const []) {"-formula", "-mapping", NULL},
+        sat_shell_command_add_formula,
+        "Add a formula with 1 ... n and map them to a list of literals in the current problem.\n"
+        "Parsed formula strings are cached to make multiple usage of same formula string more efficient."
+    },
+    {"solve",
+        (const char * const []) {"-tempfile_keep", "-tempfile_clean", "-tempfile_base", "-compress_cnf", "-plain_cnf", "-solver_binary", "-solution_on_stdout", "-help", NULL},
+        sat_shell_command_solve,
+        "Solve current sat problem - return true if satisfiable."
+    },
+    {"reset",
+        (const char * const []) {"-help", NULL},
+        sat_shell_command_reset,
+        "Reset sat problem - deletes all currently added clauses and variables."
+    },
+    {"cancel_solution",
+        (const char * const []) {"-help", NULL},
+        sat_shell_command_cancel_solution,
+        "Invalidate current solution - on next \"solve\" another solution must be generated if still satisfiable."
+    },
+    {"get_var_result",
+        (const char * const []) {"-var", "-assignment", "-help", NULL},
+        sat_shell_command_get_var_result,
+        "Get assignment for variables after problem has been solved."
+    },
+    {"get_var_mapping",
+        (const char * const []) {"-name", "-number", "-help", NULL},
+        sat_shell_command_get_var_mapping,
+        "Get mapping of named literals in sat problem to enumerated literals for solver."
+    },
+    {"get_clauses",
+        (const char * const []) {"-help", NULL},
+        sat_shell_command_get_clauses,
+        "Get all clauses of current sat problem."
+    },
+    {"help",
+        (const char * const []) {"-help", NULL},
+        sat_shell_command_help,
+        "Print this help text."
+    },
+    {NULL, NULL, NULL, NULL}
+};
 
 /* allocate and return new sat_shell */
 struct sat_shell * sat_shell_new ()
@@ -65,18 +130,9 @@ struct sat_shell * sat_shell_new ()
 
     tclln_provide_completion_command (result->tclln, NULL);
 
-    tclln_add_command (result->tclln, "add_clause",      (const char * const []) {"-clause", "-list", "-help", NULL},    sat_shell_command_add_clause,      (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "add_encoding",    (const char * const []) {"-literals", "-encoding", "-parameter", NULL},
-            sat_shell_command_add_encoding,    (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "add_formula",     (const char * const []) {"-formula", "-mapping", NULL},         sat_shell_command_add_formula,     (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "solve",
-            (const char * const []) {"-tempfile_keep", "-tempfile_clean", "-tempfile_base", "-compress_cnf", "-plain_cnf", "-solver_binary", "-solution_on_stdout", "-help", NULL},
-            sat_shell_command_solve, (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "reset",           (const char * const []) {"-help", NULL},                        sat_shell_command_reset,           (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "cancel_solution", (const char * const []) {"-help", NULL},                        sat_shell_command_cancel_solution, (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "get_var_result",  (const char * const []) {"-var", "-assignment", "-help", NULL}, sat_shell_command_get_var_result,  (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "get_var_mapping", (const char * const []) {"-name", "-number", "-help", NULL},    sat_shell_command_get_var_mapping, (ClientData) result, NULL);
-    tclln_add_command (result->tclln, "get_clauses",     (const char * const []) {"-help", NULL},                        sat_shell_command_get_clauses,     (ClientData) result, NULL);
+    for (struct sat_shell_command_data *di = &sat_shell_command_data_list[0]; di->command != NULL; di++) {
+        tclln_add_command (result->tclln, di->command, di->completion_list, di->proc, (ClientData) result, NULL);
+    }
 
     tclln_set_prompt  (result->tclln, "sat-shell> ",
                                       "         : ");
@@ -619,5 +675,62 @@ static int sat_shell_command_get_clauses (ClientData client_data, Tcl_Interp *in
     g_hash_table_destroy (lit_to_tclobj);
 
     Tcl_SetObjResult (interp, retval);
+    return TCL_OK;
+}
+
+/* Tcl command for printing help */
+static int sat_shell_command_help (ClientData client_data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+{
+    Tcl_ArgvInfo arg_table [] = {
+        TCL_ARGV_AUTO_HELP,
+        TCL_ARGV_TABLE_END
+    };
+
+    int result = Tcl_ParseArgsObjv (interp, arg_table, &objc, objv, NULL);
+    if (result != TCL_OK) return result;
+
+    printf ("%s\n", "List of available special commands - to get more details for a specific command type <command> -help.\n");
+
+    /* command length */
+    int cmd_len = 0;
+
+    for (struct sat_shell_command_data *di = &sat_shell_command_data_list[0]; di->command != NULL; di++) {
+        int i_len = strlen (di->command);
+        if (i_len > cmd_len) cmd_len = i_len;
+    }
+    cmd_len += 3;
+
+    GString *line = g_string_new (NULL);
+    GString *fill = g_string_new (NULL);
+
+    g_string_assign (line, "<command>");
+    g_string_assign (fill, "");
+    while (line->len < cmd_len) {g_string_append_c (line, ' ');}
+    while (fill->len < cmd_len) {g_string_append_c (fill, ' ');}
+
+    g_string_append (line, "<info>");
+    printf ("%s\n", line->str);
+
+    for (struct sat_shell_command_data *di = &sat_shell_command_data_list[0]; di->command != NULL; di++) {
+        g_string_assign (line, di->command);
+        while (line->len < cmd_len) {g_string_append_c (line, ' ');}
+
+        gchar **help_lines = g_strsplit (di->help, "\n", -1);
+
+        for (int i = 0; help_lines[i] != NULL; i++) {
+            g_string_append (line, help_lines[i]);
+            printf ("%s\n", line->str);
+
+            g_string_assign (line, fill->str);
+        }
+
+        g_strfreev (help_lines);
+    }
+
+    g_string_free (line, true);
+    g_string_free (fill, true);
+
+    printf ("\n");
+
     return TCL_OK;
 }

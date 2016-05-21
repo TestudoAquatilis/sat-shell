@@ -1,5 +1,5 @@
 /*
- *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  sat-shell is an interactive tcl-shell for solving satisfiability problems.
  *  Copyright (C) 2016  Andreas Dixius
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -17,6 +17,7 @@
  */
 
 #include "sat_base_cnf.h"
+#include "pty_run.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -257,85 +258,75 @@ static bool base_cnf_run_solver (const char *solver_binary, const char *filename
     if (filename_cnf == NULL) return false;
     if (filename_sol == NULL) return false;
 
-    GString *cmd_str = g_string_new (NULL);
     bool result = true;
 
     FILE *sol_file = NULL;
 
+    GSList *solver_execlist = NULL;
+    solver_execlist = g_slist_prepend (solver_execlist, (char *) solver_binary);
+    solver_execlist = g_slist_prepend (solver_execlist, (char *) filename_cnf);
+
     if (solution_on_stdout) {
         sol_file = fopen (filename_sol, "w");
         if (sol_file == NULL) {
+            g_slist_free (solver_execlist);
             return false;
         }
-        g_string_printf (cmd_str, "%s %s", solver_binary, filename_cnf);
     } else {
-        g_string_printf (cmd_str, "%s %s %s", solver_binary, filename_cnf, filename_sol);
+        solver_execlist = g_slist_prepend (solver_execlist, (char *) filename_sol);
     }
+    solver_execlist = g_slist_reverse (solver_execlist);
 
-    FILE *sat_pipe;
+    PTYRunData solver_run_data = pty_run_new (solver_execlist);
+    g_slist_free (solver_execlist);
 
-    sat_pipe = popen (cmd_str->str, "r");
-    if (sat_pipe == NULL) {
-        printf ("ERROR: could not execute %s\n", cmd_str->str);
-        g_string_free (cmd_str, true);
+    if (solver_run_data == NULL) {
+        printf ("ERROR: could not execute %s\n", solver_binary);
         if (sol_file != NULL) fclose (sol_file);
         return false;
     }
 
     bool read_on    = true;
-    bool new_line   = true;
     bool write_line = false;
     bool print_line = false;
 
     while (read_on) {
-        const size_t buff_len = 1024;
-        char in_buff[buff_len];
-        if (fgets (in_buff, buff_len, sat_pipe) != 0) {
+        const char *in_buff = pty_run_getline (solver_run_data);
+        if (in_buff != NULL) {
             if (solution_on_stdout) {
                 int len = strlen (in_buff);
-                if (new_line) {
-                    print_line = true;
-                    write_line = false;
 
-                    if (len > 1) {
-                        if (in_buff[0] == 's') {
-                            write_line = true;
-                        }
-                        if (in_buff[0] == 'v') {
-                            write_line = true;
-                            print_line = false;
-                        }
+                print_line = true;
+                write_line = false;
+
+                if (len > 1) {
+                    if (in_buff[0] == 's') {
+                        write_line = true;
+                    }
+                    if (in_buff[0] == 'v') {
+                        write_line = true;
+                        print_line = false;
                     }
                 }
 
                 if (print_line) {
-                    printf ("SOLVER: %s", in_buff);
+                    printf ("SOLVER: %s\n", in_buff);
                 }
                 if (write_line) {
-                    if (new_line) {
-                        fprintf (sol_file, "%s", &in_buff[2]);
-                    } else {
-                        fprintf (sol_file, "%s", &in_buff[0]);
-                    }
+                    fprintf (sol_file, "%s\n", &in_buff[2]);
                 }
 
-                if (in_buff[len-1] == '\n') {
-                    new_line = true;
-                } else {
-                    new_line = false;
-                }
             } else {
-                printf ("SOLVER: %s", in_buff);
+                printf ("SOLVER: %s\n", in_buff);
             }
         } else {
             read_on = false;
         }
     }
 
-    pclose (sat_pipe);
+    pty_run_finish (&solver_run_data);
 
     if (sol_file != NULL) fclose (sol_file);
-    g_string_free (cmd_str, true);
     return result;
 }
 

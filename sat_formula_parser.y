@@ -1,5 +1,5 @@
 /*
- *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  sat-shell is an interactive tcl-shell for solving satisfiability problems.
  *  Copyright (C) 2016  Andreas Dixius
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
  */
 
 %{
- 
+
 #include "sat_formula.h"
 #include "sat_formula_parser.h"
 #include "sat_formula_lexer.h"
@@ -26,7 +26,7 @@ static int yyerror(SatFormula *formula, yyscan_t scanner, const char *msg) {
     /* Add error handling routine as needed */
     return 0;
 }
- 
+
 %}
 
 %code requires {
@@ -38,28 +38,28 @@ typedef void* yyscan_t;
 
 }
 
-%output  "sat_formula_parser.c"
-%defines "sat_formula_parser.h"
-%define api.prefix {sat_formula_yy}
+%output  "parser/sat_formula_parser.c"
+%defines "parser/sat_formula_parser.h"
+%name-prefix "sat_formula_yy"
 
- 
+
 %define api.pure
 %lex-param   { yyscan_t scanner }
 %parse-param { SatFormula *formula }
 %parse-param { yyscan_t scanner }
 
 %union {
-    int literal;
+    long int variable;
     SatFormula formula;
 }
- 
+
 %left TOKEN_AND
 %left TOKEN_OR
 %left TOKEN_XOR
 %left TOKEN_EQUAL
 %left TOKEN_RIMPL
 %left TOKEN_LIMPL
- 
+
 %token TOKEN_LPAREN
 %token TOKEN_RPAREN
 %token TOKEN_LBRACK
@@ -77,31 +77,52 @@ typedef void* yyscan_t;
 %token TOKEN_RIMPL
 %token TOKEN_LIMPL
 
-%token <literal> TOKEN_LITERAL
+%token <variable> TOKEN_VARIABLE
 %token TOKEN_ERROR
 
-%type <formula> formula
+%type <formula> formula_equal formula_impl formula_xor formula_or formula_and formula_basic
 %destructor { sat_formula_free (&$$); } <formula>
- 
+
 %%
- 
+
 input
-    : formula { *formula = $1; }
+    : formula_equal[F] { *formula = $F; }
     ;
- 
-formula
-    : formula[L] TOKEN_EQUAL formula[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_EQUAL, $L, $R ); }
-    | formula[L] TOKEN_LIMPL formula[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_LIMPL, $L, $R ); }
-    | formula[L] TOKEN_RIMPL formula[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_RIMPL, $L, $R ); }
-    | formula[L] TOKEN_XOR formula[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_XOR, $L, $R ); }
-    | formula[L] TOKEN_OR formula[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_OR, $L, $R ); }
-    | formula[L] TOKEN_AND formula[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_AND, $L, $R ); }
-    | TOKEN_INVERT formula[L] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_INVERSION, $L, NULL ); }
-    | TOKEN_LPAREN formula[E] TOKEN_RPAREN { $$ = $E; }
-    | TOKEN_LBRACK formula[E] TOKEN_RBRACK { $$ = $E; }
-    | TOKEN_LBRACE formula[E] TOKEN_RBRACE { $$ = $E; }
-    | TOKEN_LTAG formula[E] TOKEN_RTAG { $$ = $E; }
-    | TOKEN_LITERAL { $$ = sat_formula_new_literal ($1); }
+
+formula_equal
+    : formula_equal[L] TOKEN_EQUAL formula_impl[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_EQUAL, $L, $R ); }
+    | formula_impl[F] { $$ = $F; }
     ;
- 
+
+formula_impl
+    : formula_impl[L] TOKEN_LIMPL formula_xor[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_LIMPL, $L, $R ); }
+    | formula_impl[L] TOKEN_RIMPL formula_xor[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_RIMPL, $L, $R ); }
+    | formula_xor[F] { $$ = $F; }
+    ;
+
+formula_xor
+    : formula_xor[L] TOKEN_XOR formula_or[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_XOR, $L, $R ); }
+    | formula_or[F] { $$ = $F; }
+    ;
+
+formula_or
+    : formula_or[L] TOKEN_OR formula_and[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_OR, $L, $R ); }
+    | formula_and[F] { $$ = $F; }
+    ;
+
+formula_and
+    : formula_and[L] TOKEN_AND formula_basic[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_AND, $L, $R ); }
+    | formula_and[L] formula_basic[R] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_OP_AND, $L, $R ); }
+    | formula_basic[F] { $$ = $F; }
+    ;
+
+formula_basic
+    : TOKEN_LPAREN formula_equal[F] TOKEN_RPAREN { $$ = $F; }
+    | TOKEN_LBRACK formula_equal[F] TOKEN_RBRACK { $$ = $F; }
+    | TOKEN_LBRACE formula_equal[F] TOKEN_RBRACE { $$ = $F; }
+    | TOKEN_LTAG formula_equal[F] TOKEN_RTAG { $$ = $F; }
+    | TOKEN_INVERT formula_basic[F] { $$ = sat_formula_new_operation ( SAT_FORMULA_TAG_INVERSION, $F, NULL ); }
+    | TOKEN_VARIABLE { $$ = sat_formula_new_literal ($1); }
+    ;
+
 %%

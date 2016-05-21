@@ -1,5 +1,5 @@
 /*
- *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  sat-shell is an interactive tcl-shell for solving satisfiability problems.
  *  Copyright (C) 2016  Andreas Dixius
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -30,7 +30,7 @@
 %}
 
 %option prefix="sat_formula_yy"
-%option outfile="sat_formula_lexer.c" header-file="sat_formula_lexer.h"
+%option outfile="lexer/sat_formula_lexer.c" header-file="lexer/sat_formula_lexer.h"
 %option warn nodefault
  
 %option reentrant noyywrap never-interactive nounistd
@@ -48,10 +48,10 @@ RTAG        ">"
 INVERT      "!"|"-"|"~"|"not"|"NOT"|"¬"
 AND         "*"|"&&"|"&"|"and"|"AND"|"∧"
 OR          "+"|"||"|"|"|"or"|"OR"|"∨"
-XOR         "^"|"!="|"xor"|"XOR"
-EQUAL       "<->"|"<=>"|"="|"=="|"xnor"|"XNOR"
-RIMPL       "->"|"=>"
-LIMPL       "<-"|"<="
+XOR         "^"|"!="|"xor"|"XOR"|"⊕"
+EQUAL       "<->"|"<=>"|"="|"=="|"xnor"|"XNOR"|"⇔"
+RIMPL       "->"|"=>"|"⇒"
+LIMPL       "<-"|"<="|"⇐"
  
 NUMBER      [0-9]+
 WS          [ \r\n\t]*
@@ -59,7 +59,7 @@ WS          [ \r\n\t]*
 %%
  
 {WS}            { /* Skip blanks. */ }
-{NUMBER}        { sscanf(yytext, "%uld", &yylval->literal); return TOKEN_LITERAL; }
+{NUMBER}        { sscanf(yytext, "%ld", &yylval->variable); return TOKEN_VARIABLE; }
  
 {LPAREN} { return TOKEN_LPAREN; }
 {RPAREN} { return TOKEN_RPAREN; }

@@ -1,7 +1,14 @@
+# encode puzzle from a game: you have to walk in a room
+# while passing every unblocked square exactly once.
+
 set width 13
 set height 9
+
+# start and end -- 0, 0 = unknown
 set start {13 5}
 set end {0 0}
+
+# list of blockages
 set blocks [list {4 6} {7 3} {7 6} {7 8} {9 6} {7 7}]
 
 proc print_zeldaproblem {{solution "false"}} {

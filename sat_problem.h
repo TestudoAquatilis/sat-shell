@@ -1,5 +1,5 @@
 /*
- *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  sat-shell is an interactive tcl-shell for solving satisfiability problems.
  *  Copyright (C) 2016  Andreas Dixius
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -40,10 +40,10 @@ void sat_problem_add_1ofn_order_encoding (SatProblem sat, GSList *lit_list);
 /* apply m of n direct encoding to literals (const char *) in lit_list. */
 void sat_problem_add_mofn_direct_encoding (SatProblem sat, GSList *lit_list, unsigned int m);
 
-/* add a formula as mapping and return true on success. 
+/* add a formula as mapping and return true on success.
  * formula: the formula represented as string with variables 1 ... n.
  * lit_mapping: list of literals (const char *) to map to variables in given formula.
- * parsed formulas are cached for making multiple usage more efficient as only mapping 
+ * parsed formulas are cached for making multiple usage more efficient as only mapping
  * needs to be applied individually whereas parsing only needs to be done once. */
 bool sat_problem_add_formula_mapping (SatProblem sat, const char* formula, GSList *lit_mapping);
 

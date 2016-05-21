@@ -1,5 +1,5 @@
 /*
- *  sat-shell is an interactive tcl-shell for sat-solver interaction
+ *  sat-shell is an interactive tcl-shell for solving satisfiability problems.
  *  Copyright (C) 2016  Andreas Dixius
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -66,7 +66,7 @@ struct sat_problem_var_result_list_gen_user_data {
 static void sat_problem_clear_solution (struct sat_problem *sat);
 /* encode literal from string to integer representation and return the result */
 static long int sat_problem_encode_literal (struct sat_problem *sat, const char *literal);
-/* iterator function for generating result list for sat_problem_var_result_list 
+/* iterator function for generating result list for sat_problem_var_result_list
  * from GHashTable */
 static void sat_problem_var_result_list_gen_func (gpointer key, gpointer value, gpointer user_data);
 
@@ -105,8 +105,8 @@ struct sat_problem * sat_problem_new ()
     result->tbl_var_result       = g_hash_table_new (g_str_hash, g_str_equal);
     result->formula_to_cnf_cache = g_hash_table_new (g_str_hash, g_str_equal);
 
-    if ((result->tbl_lit_name_to_int == NULL) || 
-        (result->tbl_lit_int_to_name == NULL) || 
+    if ((result->tbl_lit_name_to_int == NULL) ||
+        (result->tbl_lit_int_to_name == NULL) ||
         (result->tbl_var_result == NULL) ||
         (result->formula_to_cnf_cache == NULL)) {
 
@@ -470,10 +470,10 @@ void sat_problem_add_mofn_direct_encoding (struct sat_problem *sat, GSList *lit_
     sat_problem_clear_solution (sat);
 }
 
-/* add a formula as mapping and return true on success. 
+/* add a formula as mapping and return true on success.
  * formula: the formula represented as string with variables 1 ... n.
  * lit_mapping: list of literals (const char *) to map to variables in given formula.
- * parsed formulas are cached for making multiple usage more efficient as only mapping 
+ * parsed formulas are cached for making multiple usage more efficient as only mapping
  * needs to be applied individually whereas parsing only needs to be done once. */
 bool sat_problem_add_formula_mapping (struct sat_problem *sat, const char* formula, GSList *lit_mapping)
 {
@@ -736,7 +736,7 @@ bool sat_problem_var_result (struct sat_problem *sat, const char *var, bool *err
     return (bool) GPOINTER_TO_SIZE (result);
 }
 
-/* iterator function for generating result list for sat_problem_var_result_list 
+/* iterator function for generating result list for sat_problem_var_result_list
  * from GHashTable */
 static void sat_problem_var_result_list_gen_func (gpointer key, gpointer value, gpointer user_data)
 {

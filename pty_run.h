@@ -16,19 +16,22 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __sat_shell_h__
-#define __sat_shell_h__
+#ifndef __pty_run_h__
+#define __pty_run_h__
 
-typedef struct sat_shell *SatShell;
+#include <glib.h>
 
-/* allocate and return new sat_shell */
-SatShell sat_shell_new ();
-/* free sat */
-void sat_shell_free (SatShell *sat);
+typedef struct pty_run_data *PTYRunData;
 
-/* run sat shell in shell mode */
-void sat_shell_run_shell (SatShell sat);
-/* run sat shell in script mode: execute given script */
-void sat_shell_run_script (SatShell sat, const char *script);
+/* create new subprocess in pty with exec + arg list given in exec_arg_list
+ * returns data needed for interaction or NULL on failure */
+PTYRunData pty_run_new (GSList *exec_arg_list);
+
+/* wait on child an free data */
+void pty_run_finish (PTYRunData *data);
+
+/* return line read from child process stdout/err without newline
+ * or NULL if no new line can be read */
+const char * pty_run_getline (PTYRunData data);
 
 #endif

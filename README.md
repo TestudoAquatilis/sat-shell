@@ -1,8 +1,8 @@
 # sat-shell
 
-sat-shell is an interactive tcl-shell for sat-solver interaction.
+sat-shell is an interactive tcl-shell for solving satisfiability problems.
 
-It is based on tclln for the shell:
+It uses tclln for the shell:
 https://github.com/TestudoAquatilis/tclln.git
 
 # Requirements
@@ -22,15 +22,19 @@ For building the tool simply run:
 
 # Usage
 
-To see an example for usage there is a tcl-script you can source in the shell with
+For getting a list of available special commands in the shell type
 
-> source examples/examples/zelda-puzzle.tcl
+> help
+
+To see an example for usage there are tcl-scripts you can source in the shell with
+
+> source examples/examples/sudoku.tcl
 
 or execute directly with
 
-> ./sat-shell examples/zelda-puzzle.tcl
+> ./sat-shell --script examples/sudoku.tcl
 
-It solves a puzzle of some probably well known game and prints the solution.
+It solves a sudoku puzzle and prints the solution.
 
 # License
 

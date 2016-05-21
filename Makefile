@@ -1,4 +1,4 @@
-SOURCES=main.c sat_shell.c sat_problem.c sat_base_cnf.c sat_formula.c
+SOURCES=main.c sat_shell.c sat_problem.c sat_base_cnf.c sat_formula.c pty_run.c
 PARSERSOURCES=sat_formula_parser.y
 LEXSOURCES=sat_formula_lexer.l
 EXECUTABLE=sat-shell
@@ -6,6 +6,7 @@ EXECUTABLE=sat-shell
 LIBS=glib-2.0 tcl tclln zlib
 
 MAKEFILE=Makefile
+VERSION=1.1
 
 CC=gcc
 LEXERG=flex
@@ -13,7 +14,7 @@ PARSERG=bison -d
 
 #OPTFLAGS=-ggdb
 OPTFLAGS=-O2
-CFLAGS=-c -Wall -std=gnu99 $(OPTFLAGS)
+CFLAGS=-c -Wall -std=gnu99 $(OPTFLAGS) -D VERSION_STRING=\"$(VERSION)\"
 LDFLAGS=$(OPTFLAGS)
 
 OBJDIR=obj
@@ -21,7 +22,7 @@ PARSERDIR=parser
 LEXERDIR=lexer
 
 CFLAGS+=$(shell pkg-config --cflags $(LIBS)) -I $(PARSERDIR)/ -I $(LEXERDIR)/ -I./
-LDFLAGS+=$(shell pkg-config --libs $(LIBS))
+LDFLAGS+=$(shell pkg-config --libs $(LIBS)) -lutil
 
 LEXCSOURCES=$(LEXSOURCES:%.l=$(LEXERDIR)/%.c)
 PARSERCSOURCES=$(PARSERSOURCES:%.y=$(PARSERDIR)/%.c)
@@ -30,7 +31,7 @@ SOURCES+=$(PARSERCSOURCES) $(LEXCSOURCES)
 OBJECTS=$(SOURCES:%.c=$(OBJDIR)/%.o)
 DEPS=$(SOURCES:%.c=$(OBJDIR)/%.d)
 
-.PHONY: all
+.PHONY: all memcheck slicecheck
 all: $(PARSERSOURCES) $(LEXSOURCES) $(SOURCES) $(EXECUTABLE)
 
 -include $(OBJECTS:.o=.d)
@@ -45,13 +46,9 @@ $(OBJDIR)/%.o: %.c $(MAKEFILE) | $(OBJDIR)
 
 $(PARSERDIR)/%.c $(PARSERDIR)/%.h: %.y $(MAKEFILE) | $(PARSERDIR)
 	$(PARSERG) $*.y
-	mv $*.c $*.h $(PARSERDIR)
 
 $(LEXERDIR)/%.c $(LEXERDIR)/%.h: %.l $(MAKEFILE) | $(LEXERDIR)
 	$(LEXERG) $*.l
-	sed -i -e 's/YYSTYPE/SAT_FORMULA_YYSTYPE/g' sat_formula_lexer.h
-	sed -i -e 's/YYSTYPE/SAT_FORMULA_YYSTYPE/g' sat_formula_lexer.c
-	mv $*.c $*.h $(LEXERDIR)
 
 $(LEXERDIR):
 	mkdir -p $(LEXERDIR)
@@ -68,3 +65,5 @@ clean:
 
 memcheck: all
 	valgrind --leak-check=full --suppressions=memcheck/suppress_libtcl.supp ./$(EXECUTABLE)
+slicecheck: all
+	G_SLICE=debug-blocks ./$(EXECUTABLE)
