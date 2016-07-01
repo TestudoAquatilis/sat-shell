@@ -95,7 +95,7 @@ proc zelda_encode_field {x y} {
             add_clause -clause [list "-$var"]
         }
     } else {
-        add_encoding -encoding "2ofn" -literals $var_list
+        add_encoding -encoding "mofn" -parameter 2 -literals $var_list
     }
 
     if {$coord == $start} {

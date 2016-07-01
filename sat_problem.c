@@ -351,7 +351,7 @@ void sat_problem_add_1ofn_order_encoding (struct sat_problem *sat, GSList *lit_l
 }
 
 /* apply m of n direct encoding to literals (const char *) in lit_list. */
-void sat_problem_add_mofn_direct_encoding (struct sat_problem *sat, GSList *lit_list, unsigned int m)
+void sat_problem_add_mofn_direct_encoding (SatProblem sat, GSList *lit_list, unsigned int m, bool atleast, bool atmost)
 {
     /* checks */
     if (sat == NULL) return;
@@ -360,8 +360,7 @@ void sat_problem_add_mofn_direct_encoding (struct sat_problem *sat, GSList *lit_
 
     if (m > n_lit) return;
 
-    if (n_lit <= 1) return;
-    if (n_lit == m) {
+    if ((n_lit == m) && atleast) {
         GSList *temp_clause = g_slist_prepend (NULL, NULL);
 
         for (GSList *li = lit_list; li != NULL; li = li->next) {
@@ -391,77 +390,81 @@ void sat_problem_add_mofn_direct_encoding (struct sat_problem *sat, GSList *lit_
 
     /* clauses */
     /* min m */
-    i = n_lit - m;
-    temp_clause[n_lit-m+1] = 0;
+    if (atleast) {
+        i = n_lit - m;
+        temp_clause[n_lit-m+1] = 0;
 
-    while (true) {
-        if (i == n_lit - m) {
-            /* last element */
-            if (index_clause[i] < n_lit) {
-                /* valid clause */
-                base_cnf_add_clause_array (sat->cnf, temp_clause);
+        while (true) {
+            if (i == n_lit - m) {
+                /* last element */
+                if (index_clause[i] < n_lit) {
+                    /* valid clause */
+                    base_cnf_add_clause_array (sat->cnf, temp_clause);
+                } else {
+                    /* invalid clause */
+                    i--;
+                }
             } else {
-                /* invalid clause */
-                i--;
+                /* intermediate element */
+                if (index_clause[i] < i + m) {
+                    /* valid value */
+                    index_clause[i+1] = index_clause[i];
+                    i++;
+                } else {
+                    /* invalid value */
+                    i--;
+                }
             }
-        } else {
-            /* intermediate element */
-            if (index_clause[i] < i + m) {
-                /* valid value */
-                index_clause[i+1] = index_clause[i];
-                i++;
-            } else {
-                /* invalid value */
-                i--;
-            }
+
+            if (i < 0) break;
+
+            /* next index */
+            long int index = index_clause[i];
+            index++;
+            index_clause[i] = index;
+            temp_clause[i] = main_array[index];
         }
-
-        if (i < 0) break;
-
-        /* next index */
-        long int index = index_clause[i];
-        index++;
-        index_clause[i] = index;
-        temp_clause[i] = main_array[index];
     }
 
 
     /* exclusion */
-    temp_clause[m+1] = 0;
+    if (atmost) {
+        temp_clause[m+1] = 0;
 
-    i = 0;
-    index_clause[0] = 0;
-    temp_clause[0]  = -main_array[0];
+        i = 0;
+        index_clause[0] = 0;
+        temp_clause[0]  = -main_array[0];
 
-    while (true) {
-        if (i == m) {
-            /* last element */
-            if (index_clause[i] < n_lit) {
-                /* valid clause */
-                base_cnf_add_clause_array (sat->cnf, temp_clause);
+        while (true) {
+            if (i == m) {
+                /* last element */
+                if (index_clause[i] < n_lit) {
+                    /* valid clause */
+                    base_cnf_add_clause_array (sat->cnf, temp_clause);
+                } else {
+                    /* invalid clause */
+                    i--;
+                }
             } else {
-                /* invalid clause */
-                i--;
+                /* intermediate element */
+                if (index_clause[i] < i + n_lit - m) {
+                    /* valid value */
+                    index_clause[i+1] = index_clause[i];
+                    i++;
+                } else {
+                    /* invalid value */
+                    i--;
+                }
             }
-        } else {
-            /* intermediate element */
-            if (index_clause[i] < i + n_lit - m) {
-                /* valid value */
-                index_clause[i+1] = index_clause[i];
-                i++;
-            } else {
-                /* invalid value */
-                i--;
-            }
+
+            if (i < 0) break;
+
+            /* next index */
+            long int index = index_clause[i];
+            index++;
+            index_clause[i] = index;
+            temp_clause[i] = -main_array[index];
         }
-
-        if (i < 0) break;
-
-        /* next index */
-        long int index = index_clause[i];
-        index++;
-        index_clause[i] = index;
-        temp_clause[i] = -main_array[index];
     }
 
     g_slice_free1 ((sizeof (long int) * (n_lit + 1)), main_array);

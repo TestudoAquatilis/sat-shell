@@ -37,8 +37,8 @@ void sat_problem_add_clause_gslist (SatProblem sat, GSList *clause);
 
 /* apply 1 of n order encoding to literals (const char *) in lit_list. */
 void sat_problem_add_1ofn_order_encoding (SatProblem sat, GSList *lit_list);
-/* apply m of n direct encoding to literals (const char *) in lit_list. */
-void sat_problem_add_mofn_direct_encoding (SatProblem sat, GSList *lit_list, unsigned int m);
+/* apply (at least/most) m of n direct encoding to literals (const char *) in lit_list. */
+void sat_problem_add_mofn_direct_encoding (SatProblem sat, GSList *lit_list, unsigned int m, bool atleast, bool atmost);
 
 /* add a formula as mapping and return true on success.
  * formula: the formula represented as string with variables 1 ... n.

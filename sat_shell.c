@@ -365,7 +365,7 @@ static int sat_shell_command_add_encoding (ClientData client_data, Tcl_Interp *i
 
     Tcl_ArgvInfo arg_table [] = {
         {TCL_ARGV_FUNC,     "-literals",  (void*) (Tcl_ArgvFuncProc*) sat_shell_tcl_string_list_parse, (void *) &lit_list,  "the list of literals to apply encoding to", NULL},
-        {TCL_ARGV_STRING,   "-encoding",  NULL,                                                        (void *) &encoding,  "the encoding to apply: one of \"1ofn\", \"2ofn\", \"mofn\" + parameter = m, \"1ofn_order\"", NULL},
+        {TCL_ARGV_STRING,   "-encoding",  NULL,                                                        (void *) &encoding,  "the encoding to apply: one of \"mofn\", \"atleast_mofn\", \"atmost_mofn\" + parameter = m, \"1ofn_order\"", NULL},
         {TCL_ARGV_INT,      "-parameter", NULL,                                                        (void *) &parameter, "integer parameter for some encodings", NULL},
         TCL_ARGV_AUTO_HELP,
         TCL_ARGV_TABLE_END
@@ -385,21 +385,27 @@ static int sat_shell_command_add_encoding (ClientData client_data, Tcl_Interp *i
     }
 
     if (strcmp (encoding, "1ofn") == 0) {
-        sat_problem_add_mofn_direct_encoding (sat, lit_list, 1);
+        sat_problem_add_mofn_direct_encoding (sat, lit_list, 1, true, true);
     } else if (strcmp (encoding, "1ofn_order") == 0) {
         sat_problem_add_1ofn_order_encoding (sat, lit_list);
     } else if (strcmp (encoding, "2ofn") == 0) {
-        sat_problem_add_mofn_direct_encoding (sat, lit_list, 2);
-    } else if (strcmp (encoding, "mofn") == 0) {
+        sat_problem_add_mofn_direct_encoding (sat, lit_list, 2, true, true);
+    } else if ((strcmp (encoding, "mofn") == 0) || (strcmp (encoding, "atleast_mofn") == 0) || (strcmp (encoding, "atmost_mofn") == 0)) {
         if (parameter > 0) {
-            sat_problem_add_mofn_direct_encoding (sat, lit_list, parameter);
+            if (strcmp (encoding, "mofn") == 0) {
+                sat_problem_add_mofn_direct_encoding (sat, lit_list, parameter, true, true);
+            } else if (strcmp (encoding, "atleast_mofn") == 0) {
+                sat_problem_add_mofn_direct_encoding (sat, lit_list, parameter, true, false);
+            } else {
+                sat_problem_add_mofn_direct_encoding (sat, lit_list, parameter, false, true);
+            }
         } else {
-            Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: encoding \"mofn\" expects m as parameter in range 1 ... n", -1));
+            Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: encoding \"mofn\", \"atleast_mofn\", \"atmost_mofn\" expect m as parameter in range 1 ... n", -1));
             g_slist_free (lit_list);
             return TCL_ERROR;
         }
     } else {
-        Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: encoding has to be one of \"1ofn\", \"2ofn\", \"mofn\", \"1ofn_order\"", -1));
+        Tcl_SetObjResult (interp, Tcl_NewStringObj ("error: encoding has to be one of \"mofn\", \"atleast_mofn\", \"atmost_mofn\", \"1ofn_order\"", -1));
         g_slist_free (lit_list);
         return TCL_ERROR;
     }
